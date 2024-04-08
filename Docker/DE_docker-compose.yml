@@ -1,0 +1,21 @@
+version: '3.10'
+
+services:
+  docMySQL:
+    image: mysql:latest
+    environment:
+      MYSQL_ROOT_PASSWORD: a?xBVq1!
+      MYSQL_DATABASE: RawData
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+    -  "3306:3306"
+
+app:
+    build: .
+    volumes:
+      - .:/code
+    depends_on:
+      - db
+volumes:
+  mysql-data:
