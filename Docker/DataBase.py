@@ -23,7 +23,7 @@ def infer_sql_dtype(pandas_dtype):
 
 def create_table_from_csv(csv_file):
     chunksize = 10000  # Adjust based on your system's capabilities
-    for chunk in pd.read_csv(csv_file, compression='gzip', chunksize=chunksize):
+    for chunk in pd.read_csv(csv_file, chunksize=chunksize):#compression='gzip'# # Add a clause to check file formats (GZIP)
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
         cursor.execute("CREATE DATABASE IF NOT EXISTS RawData")
@@ -43,4 +43,4 @@ def create_table_from_csv(csv_file):
         conn.close()
 
 
-create_table_from_csv('DP_CDR_AllUsers_April_2022.csv.gz')
+# create_table_from_csv('/home/adrian/1-PycharmProjects/Data_Engineering_Project/DLMSDSEDE02/Docker/')

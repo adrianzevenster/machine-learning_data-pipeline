@@ -1,15 +1,19 @@
 
 
-
 FROM python:3.10
 
-# DE Project working IDR from DataBase.py
-WORKDIR /home/adrian/PycharmProjects/Data_Engineering_Project/DLMSDSEDE02/Docker
+# Set the working directory
+WORKDIR /home/adrian/1-PycharmProjects/Data_Engineering_Project/DLMSDSEDE02/
 
-COPY requirements.txt ./
+# Copy the requirements file into the working directory
+COPY reg.txt .
 
-RUN pip install -no-cahce-dir -r requirements.txt
+# Update pip and install packages from the requirements file
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r reg.txt
 
-copy . .
+# Copy the rest of your application's source code into the working directory
+COPY . .
 
-CMD["python", "./DataBase.py"]
+# Command to run your application
+CMD ["python", "./DataBase.py"]
