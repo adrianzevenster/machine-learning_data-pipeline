@@ -1,0 +1,70 @@
+version: '3.8'
+services:
+  flaskapp-app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=mysql+pymysql://root:a?xBVq1!@flaskapp-db-1:3306/RawData
+    depends_on:
+      - flaskapp-db
+    networks:
+      - shared-network
+
+  flaskapp-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: a?xBVq1!
+      MYSQL_DATABASE: RawData
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - shared-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-u", "root", "-p'a?xBVq1!'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  db_data:
+
+networks:
+  shared-network:
+    driver: bridge
+
+
+
+#version: '3'
+#services:
+#  app:
+#    build: .
+#    ports:
+#      - "5000:5000"
+#    environment:
+#      - DATABASE_URL=mysql+pymysql://root:a?xBVq1!@db:3306/RawData
+#    depends_on:
+#      - db
+#    networks:
+#      - shared-network
+#
+#  db:
+#    image: mysql:8.0
+#    environment:
+#      MYSQL_ROOT_PASSWORD: a?xBVq1!
+#      MYSQL_DATABASE: RawData
+#    ports:
+#      - "3306:3306"
+#    volumes:
+#      - db_data:/var/lib/mysql
+#    networks:
+#      - shared-network
+#
+#volumes:
+#  db_data:
+#
+#networks:
+#  shared-network:
+#    driver: bridge
