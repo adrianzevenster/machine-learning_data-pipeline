@@ -10,7 +10,7 @@ from pyspark.sql.window import Window
 from time import gmtime, strftime, time
 import datetime
 import sys
-
+import time
 class MYSQLDataProcessor:
     def __init__(self, app_name, jdbc_url, jdbc_driver_path, user, password):
         if not os.path.isfile(jdbc_driver_path):
@@ -33,7 +33,16 @@ class MYSQLDataProcessor:
         }
 
     def load_data(self, query):
-        return self.spark.read.jdbc(url=self.jdbc_url, table=query, properties=self.jdbc_connection)
+            retries = 5
+            while retries > 0:
+                try:
+                    return self.spark.read.jdbc(url=self.jdbc_url, table=query, properties=self.jdbc_connection)
+                except Exception as e:
+                    print(f"Connection failed: {e}. Retrying in 10 seconds...")
+                    retries -= 1
+                    time.sleep(10)
+            raise Exception("Could not connect to MySQL after several retries.")
+
 
     def transfrom_data(self, df):
         postDf = df.withColumn('Date', F.date_format(col('DP_DATE'), 'yyyy-MM-dd')) \
@@ -82,8 +91,8 @@ class MYSQLDataProcessor:
 
 # Initialize processor
 app_name = "MySQL PySpark DataProcessor"
-jdbc_url = "jdbc:mysql://localhost:3306/RawData?useSSL=false&serverTimezone=UTC"
-jdbc_driver_path = '/home/adrian/.config/JetBrains/PyCharm2024.1/jdbc-drivers/MySQL ConnectorJ/8.2.0/com/mysql/mysql-connector-j/8.2.0/mysql-connector-j-8.2.0.jar'
+jdbc_url = "jdbc:mysql://flaskapp-db:3306/RawData?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+jdbc_driver_path = '/opt/spark/jars/mysql-connector-java-8.0.25.jar'
 user = "root"
 password = "a?xBVq1!"
 
@@ -104,5 +113,5 @@ transformed_df.show()
 processor.save_data(transformed_df, "RawData.Processed_Data")\
 
 # Save the transformed data to parquet file
-parquet_output_dir = "/home/adrian/1-PycharmProjects/Data_Engineering_Project/DLMSDSEDE02/pySpark/parquetFiles"
+parquet_output_dir = "/app/parquetFiles"
 processor.save_to_parquet(transformed_df, parquet_output_dir)
