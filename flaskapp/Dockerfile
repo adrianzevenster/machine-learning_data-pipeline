@@ -18,7 +18,7 @@ COPY . /app/
 EXPOSE 5000
 
 # Command to run the Flask app
-CMD ["python", "streamstream.py"]
+CMD ["python", "streamingestion.py"]
 
 
 
