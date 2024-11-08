@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  monitoring-script:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    networks:
+      - shared-network
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./output:/app/output
+
+networks:
+  shared-network:
+    external: true
