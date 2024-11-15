@@ -11,6 +11,8 @@ from time import gmtime, strftime, time
 import datetime
 import sys
 import time
+import json
+
 class MYSQLDataProcessor:
     def __init__(self, app_name, jdbc_url, jdbc_driver_path, user, password):
         if not os.path.isfile(jdbc_driver_path):
@@ -100,7 +102,16 @@ if not os.path.isfile(jdbc_driver_path):
     raise FileNotFoundError(f"The JDBC driver jar file was not found at: {jdbc_driver_path}")
 
 processor = MYSQLDataProcessor(app_name, jdbc_url, jdbc_driver_path, user, password)
-query = "(SELECT * FROM RawData.DP_CDR_Data WHERE DP_DATE >= '2024-10-12' AND DP_DATE <= '2024-10-16') as t"
+
+with open('/app/config.json', 'r') as config_file:
+    config = json.load(config_file)
+
+start_date = config['start_date']
+end_date = config['end_date']
+# Use a SQL query to filter dates within the specified range
+query = f"(SELECT * FROM RawData.DP_CDR_Data WHERE DATE(DP_DATE) BETWEEN '{start_date}' AND '{end_date}') AS t"
+
+# query = "(SELECT * FROM RawData.DP_CDR_Data WHERE DATE(DP_DATE) BETWEEN '2024-10-25' AND '2024-11-04') as t"
 
 # Load and transform data
 df = processor.load_data(query)
