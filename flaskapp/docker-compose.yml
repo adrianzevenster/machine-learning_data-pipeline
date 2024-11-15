@@ -5,7 +5,7 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - DATABASE_URL=mysql+pymysql://root:a?xBVq1!@flaskapp-db-1:3306/RawData
+      - DATABASE_URL=mysql+pymysql://root:a?xBVq1!@flaskapp-db:3306/RawData
     depends_on:
       - flaskapp-db
     networks:
@@ -33,7 +33,10 @@ volumes:
 
 networks:
   shared-network:
-    driver: bridge
+    external: True
+
+
+
 
 
 

@@ -3,7 +3,7 @@ import pandas as pd
 
 def execute_sql_query(query, database_name):
     db_config = {
-        "host": "db",
+        "host": "flaskapp-db",
         "user": "root",
         "password": "a?xBVq1!",
         "database": database_name

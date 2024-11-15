@@ -1,29 +1,26 @@
 # Use the official Python image
-FROM python:3.10
+FROM python:3.8-slim
+
+RUN apt-get update && apt-get install -y \
+    default-jdk \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install pyspark pandas seaborn matplotlib mysql-connector-python
+
+# Add the JDBC driver
+ADD https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.25/mysql-connector-java-8.0.25.jar /opt/spark/jars/
+
+# Copy the application files
+COPY PySparkAnalysis.py /app/PySparkAnalysis.py
+COPY pySparkModel.py /app/pySparkModel.py
+COPY entrypoint.sh /app/entrypoint.sh
+
+# Make entrypoint.sh executable
+RUN chmod +x /app/entrypoint.sh
 
 # Set the working directory
 WORKDIR /app
 
-# Copy the current directory contents into the container at /app
-COPY . .
-
-# Install Java, required for PySpark
-RUN apt-get update && \
-    apt-get install -y openjdk-17-jdk && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set JAVA_HOME environment variable
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-ENV PATH=$PATH:$JAVA_HOME/bin
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r pySparkEnv.txt
-
-# Download the MySQL JDBC driver
-ADD https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar /app/mysql-connector-java-8.0.30.jar
-
-# Set the SPARK_CLASSPATH environment variable to include the JDBC driver
-ENV SPARK_CLASSPATH="/app/mysql-connector-java-8.0.30.jar"
-
-# Command to run the script
-CMD ["python", "Data_Cleaning.py"]
+# CMD as the default command to be overridden by Docker Compose if needed
+CMD ["python", "/app/PySparkAnalysis.py"]

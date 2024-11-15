@@ -7,19 +7,31 @@ from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 from pyspark.ml.functions import vector_to_array
+import json
 
 '''Spark Session Creator: cv_model'''
 spark = SparkSession.builder \
-        .appName("cv_model") \
-        .config("spark.executor.memory", "4g") \
-        .config("spark.driver.memory", "4g") \
-        .config("spark.memory.offHeap.enable", True) \
-        .config("spark.memory.offHeap.size", "4g") \
-        .config("spark.jars", "/opt/spark/jars/mysql-connector-java-8.0.25.jar") \
-        .getOrCreate()
+    .appName("cv_model") \
+    .config("spark.executor.memory", "4g") \
+    .config("spark.driver.memory", "4g") \
+    .config("spark.memory.offHeap.enable", True) \
+    .config("spark.memory.offHeap.size", "4g") \
+    .config("spark.jars", "/opt/spark/jars/mysql-connector-java-8.0.25.jar") \
+    .getOrCreate()
 spark.conf.set("spark.sql.shuffle.partitions", 200)
 # "/home/adrian/.config/JetBrains/PyCharm2024.1/jdbc-drivers/MySQL ConnectorJ/8.2.0/com/mysql/mysql-connector-j/8.2.0/mysql-connector-j-8.2.0.jar")
 '''Database Connection for model results'''
+# start_date = "2024-10-15"
+# end_date = "2024-11-04"
+with open('/app/config.json', 'r') as config_file:
+    config = json.load(config_file)
+
+start_date = config['start_date']
+end_date = config['end_date']
+# Use a SQL query to filter dates within the specified range
+query = f"(SELECT * FROM Processed_Data WHERE Date BETWEEN '{start_date}' AND '{end_date}') AS date_filtered_data"
+
+# Connect to the database and read filtered data
 db_url = "jdbc:mysql://flaskapp-db:3306/RawData"
 db_table = "model_predictions"
 db_properties = {
@@ -28,12 +40,14 @@ db_properties = {
     "driver": "com.mysql.cj.jdbc.Driver"
 }
 
-'''Reading and Joining Parquet files'''
-df_20241010 = spark.read.parquet('/app/data/processed_data_2024-10-10_130521.parquet')#('/home/adrian/1-PycharmProjects/Data_Engineering_Project/DLMSDSEDE02/pySpark/parquetFiles/processed_data_2024-10-10_130521.parquet')
-df_20241011 = spark.read.parquet('/app/data/processed_data_2024-10-11_122412.parquet')#('/home/adrian/1-PycharmProjects/Data_Engineering_Project/DLMSDSEDE02/pySpark/parquetFiles/processed_data_2024-10-11_122412.parquet')
-df_20241016 = spark.read.parquet('/app/data/processed_data_2024-10-16_124447.parquet')#('/home/adrian/1-PycharmProjects/Data_Engineering_Project/DLMSDSEDE02/pySpark/parquetFiles/processed_data_2024-10-16_124447.parquet')
 
-df = df_20241010.union(df_20241011.union(df_20241016))
+'''Reading and Joining Parquet files'''
+df = spark.read.jdbc(
+    url=db_url,
+    table=query,
+    properties=db_properties
+)
+
 df.show()
 
 # Step 1: Calculate sum, mean, and standard deviation for specific columns
@@ -42,15 +56,15 @@ columns_to_aggregate = ['M_Out_Call_Count', 'M_Out_Call_Time', 'M_Data_Sum', 'M_
 for col in columns_to_aggregate:
     # Add sum feature
     sum_col_name = col + '_sum'
-    df = df.withColumn(sum_col_name, F.sum(col).over(Window.partitionBy()))
+    df = df.withColumn(sum_col_name, F.sum(col).over(Window.partitionBy('Date')))
 
     # Add mean feature
     mean_col_name = col + '_mean'
-    df = df.withColumn(mean_col_name, F.mean(col).over(Window.partitionBy()))
+    df = df.withColumn(mean_col_name, F.mean(col).over(Window.partitionBy('Date')))
 
     # Add standard deviation feature
     stddev_col_name = col + '_stddev'
-    df = df.withColumn(stddev_col_name, F.stddev(col).over(Window.partitionBy()))
+    df = df.withColumn(stddev_col_name, F.stddev(col).over(Window.partitionBy('Date')))
 
 # Step 2: Include both original and new features in the feature vector
 feature_columns_initial = [
@@ -102,8 +116,8 @@ paramGrid = ParamGridBuilder() \
     .addGrid(rf.numTrees, [50, 100]) \
     .addGrid(rf.maxDepth, [5, 10]) \
     .build()
-        # .addGrid(rf.featureSubsetStrategy, ['auto', 'sqrt', 'log2']) \
-        # .addGrid(rf.impurity, ['gini', 'entropy']) \
+# .addGrid(rf.featureSubsetStrategy, ['auto', 'sqrt', 'log2']) \
+# .addGrid(rf.impurity, ['gini', 'entropy']) \
 
 
 # Step 10: Define the evaluator, using "probability" column for evaluation
@@ -145,6 +159,7 @@ print(f"ROC-AUC Score with Random Forest: {roc_auc}")
 
 predictions_to_save.printSchema()
 predictions_to_save.write.jdbc(url=db_url, table=db_table, mode='append', properties=db_properties)
+print(f"Data written to {db_table} successfully.")
 # columns_to_aggregate = ['M_Out_Call_Count', 'M_Out_Call_Time', 'M_Data_Sum', 'M_Data_Count']
 #
 # '''Feature Creation'''
