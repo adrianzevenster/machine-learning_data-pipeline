@@ -1,13 +1,20 @@
 version: '3.8'
+
 services:
   flaskapp-app:
     build: .
     ports:
       - "5000:5000"
     environment:
+      - DB_HOST=flaskapp-db
+      - DB_USER=root
+      - DB_PASSWORD=a?xBVq1!
+      - DB_NAME=RawData
       - DATABASE_URL=mysql+pymysql://root:a?xBVq1!@flaskapp-db:3306/RawData
     depends_on:
-      - flaskapp-db
+      flaskapp-db:
+        condition: service_healthy
+    command: ["sh", "-c", "python DataBase.py && python streamingestion.py"]
     networks:
       - shared-network
 
@@ -17,25 +24,18 @@ services:
       MYSQL_ROOT_PASSWORD: a?xBVq1!
       MYSQL_DATABASE: RawData
     ports:
-      - "3306:3306"
-    volumes:
-      - db_data:/var/lib/mysql
-      - ./db-init:/docker-entrypoint-initdb.d
-      - ./Users/adrianzevenster/PycharmProjects/data_engineering_project/machine-learning_data-pipeline/flaskapp/DataFile:/DataFile
+      - "3307:3307"
     networks:
       - shared-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-u", "root", "-p'a?xBVq1!'"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p'a?xBVq1!'"]
       interval: 30s
       timeout: 10s
       retries: 5
 
-volumes:
-  db_data:
-
 networks:
   shared-network:
-    external: True
+    external: true
 
 
 

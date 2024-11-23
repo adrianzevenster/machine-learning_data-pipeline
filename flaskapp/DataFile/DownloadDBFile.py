@@ -1,27 +1,53 @@
-import gdown
+from google.cloud import storage
 import os
+import gzip
 import shutil
 
-# Define the Google Drive file ID and output path
-file_id = "https://drive.google.com/file/d/1vzDWZB_C8WzUWrEjrd7AbZGkRKPCwnOo/view?usp=drive_link"  # Replace with your actual Google Drive file ID
-output_path = "downloaded_file.csv"  # Specify the name for the downloaded file
+def download_and_extract_gcs_file(storage_url, destination_dir):
+    """
+    Downloads a gzipped file from Google Cloud Storage and extracts it as a CSV file.
 
-# Construct the Google Drive download URL
-url = f"{file_id}"
+    Args:
+        storage_url (str): GCS URL in the format 'gs://bucket_name/object_name'.
+        destination_dir (str): Local directory to save the file.
+    """
+    if not storage_url.startswith("gs://"):
+        raise ValueError("Invalid GCS URL. It should start with 'gs://'.")
 
-# Download the file
-print("Downloading the CSV file from Google Drive...")
-gdown.download(url, output_path, quiet=False)
+    # Parse bucket name and blob name from the URL
+    parts = storage_url[5:].split("/", 1)
+    if len(parts) != 2:
+        raise ValueError("Invalid GCS URL format. It should be 'gs://bucket_name/object_name'.")
 
-# Define the target directory in your repository
-target_directory = "~/PyCharmProjects/machine-learning_data-pipeline/flaskapp/DataFile"  # Replace with your target path
+    bucket_name, blob_name = parts
+    gzipped_file_path = os.path.join(destination_dir, os.path.basename(blob_name))
+    extracted_file_path = os.path.join(destination_dir, os.path.splitext(os.path.basename(blob_name))[0])
 
-# Check if the directory exists; if not, create it
-if not os.path.exists(target_directory):
-    os.makedirs(target_directory)
+    # Create the local directory if it doesn't exist
+    os.makedirs(destination_dir, exist_ok=True)
 
-# Move the downloaded file to the target directory
-print(f"Moving the file to {target_directory}...")
-shutil.move(output_path, os.path.join(target_directory, "large_database.csv"))
+    # Initialize the GCS client
+    client = storage.Client()
 
-print("File downloaded and moved successfully.")
+    # Download the gzipped file
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+    blob.download_to_filename(gzipped_file_path)
+    print(f"File downloaded to: {gzipped_file_path}")
+
+    # Extract the gzipped file
+    with gzip.open(gzipped_file_path, 'rb') as gzipped_file:
+        with open(extracted_file_path, 'wb') as extracted_file:
+            shutil.copyfileobj(gzipped_file, extracted_file)
+
+    print(f"File extracted to: {extracted_file_path}")
+
+    # Optionally, delete the gzipped file after extraction
+    os.remove(gzipped_file_path)
+    print(f"Temporary gzipped file deleted: {gzipped_file_path}")
+
+# Example usage
+STORAGE_URL = "gs://ml-pipeline-az/RawData.csv.gz"
+DESTINATION_DIR = "./downloads"
+
+download_and_extract_gcs_file(STORAGE_URL, DESTINATION_DIR)
