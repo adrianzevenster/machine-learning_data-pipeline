@@ -10,41 +10,34 @@ from sqlalchemy import create_engine
 import time
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
+import threading
 app = Flask(__name__)
 
 
 
 def create_random_batches_with_randomized_timestamps(df, batch_size, num_batches):
-    """Generates batches of data with randomized timestamps and variations in data."""
     for i in range(num_batches):
-        # Randomly sample data from the original DataFrame
         batch_df = df.sample(n=batch_size).reset_index(drop=True)
 
-        # Generate random timestamps around the current time
+        # Generate random timestamps for DP_DATE
         current_time = datetime.now()
         random_timestamps = [current_time + timedelta(seconds=random.randint(-300, 300)) for _ in range(batch_size)]
-
-        # Assign random timestamps to the 'DP_DATE' column
         batch_df['DP_DATE'] = random_timestamps
 
-        # Introduce random variations in numerical data (as an example)
+        # Introduce random variations in numerical columns
         for col in batch_df.select_dtypes(include=[np.number]).columns:
-            noise = np.random.normal(0, 0.1, batch_size)  # Adding some noise
-            batch_df[col] = batch_df[col] * (1 + noise)
+            if col != 'id':  # Skip modifying the id column
+                noise = np.random.normal(0, 0.1, batch_size)
+                batch_df[col] = batch_df[col] * (1 + noise)
 
-        # Ensure the directory exists or create it
-        directory_path = os.path.expanduser('~/1-PycharmProjects/Data_Engineering_Project/DLMSDSEDE02/DataFiles/')
-        if not os.path.exists(directory_path):
-            os.makedirs(directory_path)
+        # Remove the `id` column so the database auto-generates it
+        if 'id' in batch_df.columns:
+            batch_df = batch_df.drop(columns=['id'])
 
-        # Save the batch to a CSV file in the desired directory
-        batch_filename = os.path.join(directory_path, f'batch_{i + 1}.csv')
-        batch_df.to_csv(batch_filename, index=False)
-        print(f"Batch {i + 1} written to {batch_filename}")
-
-        # Insert batch into the database
+        # Insert into the database
         insert_into_database(batch_df, "DP_CDR_Data")
         print(f"Batch {i + 1} inserted into database table DP_CDR_Data")
+
 
 def stream_data(df, batch_size=1000, num_batches=10, interval=60):
     """Streams data by generating random batches at regular intervals."""
@@ -70,9 +63,9 @@ def test_stream_data(df, batch_size=1000, num_batches=1, interval=60):
 
 
 @app.route('/start_stream', methods=['POST'])
+@app.route('/start_stream', methods=['POST'])
 def start_stream():
     try:
-        # Log that the request has been received
         print("Received request to start streaming.")
 
         # Fetch data
@@ -81,25 +74,25 @@ def start_stream():
         print(df.head())
 
         # Ensure 'DP_DATE' is in datetime format
-        df['DP_DATE'] = pd.to_datetime(df['DP_DATE'])
+        df['DP_DATE'] = pd.to_datetime(df['DP_DATE'], errors='coerce')
         print("DataFrame after converting DP_DATE:")
         print(df.head())
 
-        # Get parameters from the request or use default values
-        batch_size = request.json.get('batch_size', 10000)
+        # Get parameters
+        batch_size = request.json.get('batch_size', 1000)
         num_batches = request.json.get('num_batches', 10)
         interval = request.json.get('interval', 60)
 
-
         print(f"Starting stream with batch_size={batch_size}, num_batches={num_batches}, interval={interval}")
 
-        # Test streaming function
-        test_stream_data(df, batch_size, num_batches, interval)
+        # Run streaming in a background thread
+        threading.Thread(target=stream_data, args=(df, batch_size, num_batches, interval)).start()
 
-        return jsonify({"message": "Streaming test completed"}), 200
+        return jsonify({"message": "Streaming started"}), 200
     except Exception as e:
-        print(f"An error occurred: {e}")  # This will print the actual error message
+        print(f"An error occurred: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 # Run the Flask app
 if __name__ == "__main__":
