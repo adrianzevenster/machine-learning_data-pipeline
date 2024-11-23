@@ -13,4 +13,9 @@ STEP 0: Downloading Data Files from Google Cloud Storage
 Head to the following directory and run python script
 - Ensure that gloud bucket key has been added to variable path
 # directory structure
-flaskapp/ |--- DataFile/ | └── DownloadDBFile.py └── ml-data-pipeline-b8c32d82371e.json
+'''
+flaskapp/ 
+|--- DataFile/ 
+| └── DownloadDBFile.py 
+  └── ml-data-pipeline-b8c32d82371e.json
+'''
