@@ -24,9 +24,13 @@ flaskapp/
 ---
 # Step 1: Creating Shared Network and Running Flaskapp Docker Multi Container
 Create a shared network using the the following command ```docker create network shared-network```.
+
 -- It might be required to add ```docker network connect shared-network flaskapp-flaskapp-db-1```.
+
 From the /flaskapp directory run the command ```docker compose up --build```.
+
 This will run the docker-compose and Dockerfile which created an instance ```flaskapp-flaskappp-db```, the _DataBase.py_ populates the mysql instance on the inital run.
+
 The _RawData_ database now has the table _DP_CDR_Data_.
 
 ## Running Streaming Script
