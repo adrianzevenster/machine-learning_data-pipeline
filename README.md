@@ -34,7 +34,14 @@
   <a href="https://spark.apache.org/" target="_blank" rel="noreferrer"> 
     <img src="https://spark.apache.org/images/spark-logo-trademark.png" alt="pyspark" width="40" height="40"/> 
   </a> 
+  <a href="https://nannyml.com/" target="_blank" rel="noreferrer"> 
+    <img src="https://nannyml.com/static/images/logo-white.svg" alt="nannyml" width="40" height="40"/> 
+  </a> 
+  <a href="https://docs.docker.com/compose/" target="_blank" rel="noreferrer"> 
+    <img src="https://www.docker.com/wp-content/uploads/2022/03/Moby-logo.png" alt="docker compose" width="40" height="40"/> 
+  </a>
 </p>
+
 
 ---
 # STEP 0: Downloading Data Files from Google Cloud Storage
