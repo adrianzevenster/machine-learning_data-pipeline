@@ -10,9 +10,9 @@
 ---
 # STEP 0: Downloading Data Files from Google Cloud Storage
 
-Head to the following directory and run python script
-- Ensure that gloud bucket key has been added to variable path
-- Run the script _DownloadDBFile.py_ and place it under the ```flaskapp``` directory
+Head to the following directory and run python script. <br>
+- Ensure that gloud bucket key has been added to variable path <br>
+- Run the script _DownloadDBFile.py_ and place it under the ```flaskapp``` directory <br>
 - - THis script fetches the RawData used to populated the docker database
 ### directory structure
 ```
