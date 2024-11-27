@@ -108,5 +108,22 @@ Be sure to specify date ranges to be retrieved from the database in the ```json.
 }
 
 ```
+***
 
+# Step 4: Model Performance Monitoring
 
+The final stage of the project evaluates model metrics of each predicion by evaluation precision, recall and the F1 score. Deviation accross model runs are captured, any deviations could be indicative of:
+- Data Drift
+- Model Drift
+- Model Degradation
+
+These present possible investigation metrics once a certain thershold is reached. 
+
+This is hosted on flaksapp app and can be triggered by the following command:
+To run monitoring script:  
+
+```
+curl http://localhost:5001/run-monitoring 
+However, a polling script is used to check for new inserts into the _Model_Predictions_ table, should there be any new inserts the script will execute automatically.
+
+```
