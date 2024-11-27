@@ -8,23 +8,50 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+
+    # Test multiple Python versions
     strategy:
       max-parallel: 4
       matrix:
         python-version: [3.7, 3.8, 3.9]
 
     steps:
-    - uses: actions/checkout@v4
+    # Step 1: Check out the repository
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    # Step 2: Set up Python environment
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
+
+    # Step 3: Cache Python dependencies for faster builds
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/flaskapp/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    # Step 4: Install dependencies
     - name: Install Dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install -r flaskapp/streamrequirements.txt
+        python -m pip install --upgrade pip setuptools wheel
+        pip install -r flaskapp/requirements.txt --progress-bar off
+
+    # Step 5: List files for debugging
+    - name: Debug - List files
+      run: ls -la
+
+    # Step 6: Run Django tests
     - name: Run Tests
       run: |
         python manage.py test
+      env:
+        DJANGO_SETTINGS_MODULE: your_project.settings  # Replace with your actual settings module
+
+    # Optional: Enable timeout to avoid long-running workflows
+    timeout-minutes: 30
