@@ -69,7 +69,7 @@ This will run the docker-compose and Dockerfile which created an instance ```fla
 
 The _RawData_ database now has the table _DP_CDR_Data_.
 
-## Running Streaming Script
+## 1.2. Running Streaming Script
 Once the database has been populated an streaming ingestion simulator is hosted on _flask_, this rest API is responsible for acting as customer relational records once it is triggered. The REST API has 3 paramters: 
  - _num_baches_: Number of iterations.
  - _batch_size_: Records per iteration.
@@ -82,5 +82,31 @@ curl -X POST http://127.0.0.1:5000/start_stream \
 ```
 ***
 # Step 2: Exploratotry Data Analysis
-In the /ExploratoryDataAnalysis directory the following command can be run: ```docker compose up --build```.
+In the _/ExploratoryDataAnalysis_ directory the following command can be run: ```docker compose up --build```.
+
 This container istance runs the _EDA.py_ script that is responsible for graphing the correlation between features, after the script has been exectud results are stored in the _/output_ directory. These correlations informes the feature generation for the machine learning model to be executed.
+
+***
+
+# Step 3: Data Preparation and Machine Learning Model
+A PySpark job retrieves data from the MySQL docker instance, performs data cleansing and transformation the data. The results are stored into the _RawData_ database under _Processed_Data_, and a parquet file is generated from same stored data for data validation or potentially further data exploration.
+
+Hereon another PySpark job trains a Random Forest Classifier to predict customer churn. Data is split into training and testing sets and vectorization transformations are performed. The model then used the lables to create a probability predicions on likelihood to churn. Result are stored under _Model_Predictions_ in the _RawData_ database.
+
+To run the multi container run the command: ```docker compose up --build``` from the _pyspark_ directory. 
+
+This will intantiate ```pyspark-pyspark-analysis-1```, responsible for transforming and cleaning the data to be used as the model input. 
+
+With the ```pyspark-pyspark-model-1``` instance runs the model and generates predictions for customer churn. ```pyspark-pyspark-model-1``` only runs after the analysis script has sucessfully exectud.
+
+Be sure to specify date ranges to be retrieved from the database in the ```json.config``` file. This file used the takes data parameters to be used as input to both data transformations and model creation.
+
+```
+{
+  "start_date": "<date_value>",
+  "end_date": "<date_value>"
+}
+
+```
+
+
