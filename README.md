@@ -46,10 +46,11 @@
 ---
 # STEP 0: Downloading Data Files from Google Cloud Storage
 
-Head to the following directory and run python script. <br>
-- Ensure that gloud bucket key has been added to variable path <br>
-- Run the script _DownloadDBFile.py_ and place it under the ```flaskapp``` directory <br>
-- - THis script fetches the RawData used to populated the docker database
+Head to the following directory and run python script _DownloadDBFile_. <br>
+- Ensure that gcloud bucket key has been added to variable path. <br>
+- Run the script _DownloadDBFile.py_ and place the ouptu file - _RawData.csv_ under the ```flaskapp``` directory. <br>
+- This script fetches the RawData used to populated the docker database.
+  
 ### directory structure
 ```
 flaskapp/ 
@@ -61,20 +62,23 @@ flaskapp/
 # Step 1: Creating Shared Network and Running Flaskapp Docker Multi Container
 Create a shared network using the the following command ```docker create network shared-network```.
 
--- It might be required to add ```docker network connect shared-network flaskapp-flaskapp-db-1```.
+-> NOTE: It might be required to add ```docker network connect shared-network flaskapp-flaskapp-db-1```.
 
-From the /flaskapp directory run the command ```docker compose up --build```.
+ - From the _/flaskapp directory run the command_ ```docker compose up --build```.
 
-This will run the docker-compose and Dockerfile which created an instance ```flaskapp-flaskappp-db```, the _DataBase.py_ populates the mysql instance on the inital run.
+This will run the docker-compose and Dockerfile which creates an instance ```flaskapp-flaskappp-db```, the _DataBase.py_ populates the mysql instance on the inital run.
 
 The _RawData_ database now has the table _DP_CDR_Data_.
 
+Another docker instance ```flaskapp-flaskappp-app-1``` is created. This instances host the streaming API, which generates simulated CDR records to populate the database. 
+The records are randomly generated based on a sample from the _DP_CDR_Data_ database. 
+
 ## 1.2. Running Streaming Script
-Once the database has been populated an streaming ingestion simulator is hosted on _flask_, this rest API is responsible for acting as customer relational records once it is triggered. The REST API has 3 paramters: 
+Once the database has been populated an streaming ingestion simulator is spun up, hosted on _flask_, this rest API is responsible for acting as customer relational records once it is triggered. The REST API has 3 paramters: 
  - _num_baches_: Number of iterations.
  - _batch_size_: Records per iteration.
  - interval: Wait time between batches.
-
+   
 ```
 curl -X POST http://127.0.0.1:5000/start_stream \ 
 -H "Content-Type: application/json" \ 
@@ -120,10 +124,13 @@ The final stage of the project evaluates model metrics of each predicion by eval
 These present possible investigation metrics once a certain thershold is reached. 
 
 This is hosted on flaksapp app and can be triggered by the following command:
-To run monitoring script:  
+To run monitoring script:
+
+From the _ModelMonitoring_ directory run the command - ```docker compose up --build```. This will set up the application to run an REST API command that triggers the model monitoring scripts, generating model metrics to the _output_ directory.
 
 ```
 curl http://localhost:5001/run-monitoring 
 However, a polling script is used to check for new inserts into the _Model_Predictions_ table, should there be any new inserts the script will execute automatically.
 
 ```
+However, a polling script is used to check for new inserts into the _Model_Predictions_ table, should there be any new inserts the script will execute automatically.
