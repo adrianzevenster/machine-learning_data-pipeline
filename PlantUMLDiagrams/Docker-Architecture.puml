@@ -1,0 +1,106 @@
+@startuml
+left to right direction
+
+package "Docker Compose Setup: flaskapp" as docker-compose-flask{
+
+    folder "docker-compose.yaml"{
+    [Dockerfile flaskapp]
+    [docker-compose flaskapp]
+
+    }
+
+    node "flaskapp container" as flaskapp-container{
+    [flaskapp-app]
+        folder "flaskapp scripts"{
+                [streamstream.py]
+                [database.py]
+            }
+    }
+     note right of "flaskapp scripts"
+        - initializes docker
+        - builds mysql instance
+        - runs streamstream.py
+        - initalized by "API Trigger"
+     end note
+
+    node "Database Containerized"{
+        [flaskapp-db]
+
+        folder "Database Tables"{
+            [DP_CDR_Data]
+            [Processed_Data]
+            [Model_Predictions]
+            [CDR_Summary]
+            }
+    }
+
+    cloud "streaming API Trigger"{
+        [curl -X POST http://127.0.0.1:5000/start_stream -H "Content-Type: application/json" -d '{"batch_size": 1000, "num_batches": 5, "interval": 10}']
+     }
+        note right of "streaming API Trigger"
+        CURL -V
+
+        end note
+    }
+
+[streaming API Trigger]-->[flaskapp-app]
+[streamstream.py]-->[DP_CDR_Data]: writes
+["docker-compose.yaml"]--[flaskapp-container]
+
+
+package "Docker Comopse Setup: PySpark App"{
+    folder "docker-compose.yml"{
+        [docker-compose model config]
+        [Dockerfile]
+        [streamrequirement.txt]
+
+    }
+
+    node "PySpark Container"{
+        [pyspark-flaskapp]
+        [pyspark-flaskapp-db]
+        folder "PySpark Scripts"{
+            [PySparkAnalysis.py]
+            [pySparkModel.py]
+            }
+           note right of "PySpark Scripts"
+            Runs the following scripts:
+            - PySparkAnalysis reads from db
+            - Transforms files
+           end note
+
+    folder "parquet files"{
+        [parquet]
+        }
+}
+}
+[flaskapp-db]<--->[pyspark-flaskapp-db]:shared-network
+[PySparkAnalysis.py] --> [Processed_Data]: writes
+[PySparkAnalysis.py]-->[parquet]: stores
+[pyspark-flaskapp] --> [PySpark Scripts]
+[pySparkModel.py] --> [Model_Predictions]: writes
+[pyspark-flaskapp-db]--[pyspark-flaskapp]: shared network
+
+
+package "Docker Compose Setup 3: Model Monitoring"{
+    folder "docker-compse.yaml" as model_monitoring{
+     [docker-compose model monitoring]
+     [Dockerfile model monitoring]
+     }
+
+    node "model monitoring"{
+        [Model_Monitoring.py]
+        }
+    }
+database "MySQL\n" as mysql{
+    [CDRDailySymmary]
+}
+}
+
+[CDRDailySymmary]-->[CDR_Summary]: Stores
+[DP_CDR_Data]--[mysql]
+[flaskapp-db]-->[model_monitoring]: shared-network
+[model_monitoring]-->[Model_Predictions]
+
+
+@enduml
