@@ -1,0 +1,104 @@
+@startuml
+allowmixing
+title MYSQLDataProcessor Class Structure and Workflow
+
+
+package "docker-compose" {
+
+        component [docker-compose.yaml]
+        component [Dockerfile]
+}
+class MYSQLDataProcessor {
+    -SparkSession: spark
+    -String: jdbc_url
+    -Map<String, String> jdbc_connection
+
+    +__init__(app_name, jdbc_url, jdbc_driver_path, user, password)
+    +load_data(sql query) : jdbc connection
+    +transfrom_data(df: Spark) : Spark DataFrame
+    +save_data(df: DataFrame, table_name: String): Processed Data
+    +save_to_parquet(df: DataFrame, output_dir: String)
+    +analyze_data(df: DataFrame)
+}
+
+SparkSession ..* MYSQLDataProcessor
+MYSQLDataProcessor ..o Database
+
+class SparkSession <<singleton>> {
+    +builder : SparkSession.Builder
+    +read.jdbc(url, table, properties) : DataFrame
+    +write.jdbc(url, table, mode, properties)
+    +write.parquet(path, mode)
+}
+
+
+actor User
+'User --> MYSQLDataProcessor : create instance
+
+'Database from main
+class Database {
+    + RawData.DP_CDR_Data : Table
+    + RawData.Processed_Data : Table
+    + execute_query(query: String)
+}
+
+
+artifact "parquet files" <<transformed data>> as parquet_files
+
+class "PySparkEDA" as EDA{
+
+}
+
+class PySparkEDAScript {
+  + SparkSession: SparkSession
+  + df: DataFrame
+  + __init__(): void
+  + load_data(): DataFrame
+  + union_dataframes(): DataFrame
+}
+
+class DataLoader {
+  + load_parquet(file_path: str): DataFrame
+}
+
+class DataFiltering {
+  + filter_by_tenure_churn(df: DataFrame): DataFrame
+  + group_and_count(df: DataFrame): DataFrame
+}
+
+class ColumnSummary {
+  + summary_all_columns(df: DataFrame): DataFrame
+  + summary_statistics(df: DataFrame): DataFrame
+}
+
+class CorrelationCalculator {
+  + calculate_correlation(df: DataFrame): (DataFrame, str)
+}
+
+class ColumnDropper {
+  + drop_columns(df: DataFrame, threshold: float): DataFrame
+}
+
+class DataScaler {
+  + min_max_scaler_with_transformations(df: DataFrame, cols_to_scale: list[str]): (DataFrame, float, float, float)
+}
+
+class DataPlotter {
+  + plot_transformed_data(pandas_df: DataFrame, column: str): void
+  + plot_distribution(pandas_df: DataFrame, column: str): void
+}
+
+PySparkEDAScript --> DataLoader : "Uses"
+PySparkEDAScript --> DataFiltering : "Uses"
+PySparkEDAScript --> ColumnSummary : "Uses"
+PySparkEDAScript --> CorrelationCalculator : "Uses"
+PySparkEDAScript --> ColumnDropper : "Uses"
+PySparkEDAScript --> DataScaler : "Uses"
+PySparkEDAScript --> DataPlotter : "Uses"
+MYSQLDataProcessor ..> parquet_files
+MYSQLDataProcessor --* PySparkEDAScript
+
+"docker-compose" <-- User
+"docker-compose" --> MYSQLDataProcessor
+
+@enduml

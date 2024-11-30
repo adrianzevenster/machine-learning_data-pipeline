@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
@@ -7,10 +6,23 @@ from main import execute_sql_query
 import seaborn as sns
 
 
+import logging
+from main import execute_sql_query
+
+logging.basicConfig(level=logging.DEBUG)
+
+try:
+    logging.debug("Executing SQL query...")
+    query = "SELECT * FROM DP_CDR_Data WHERE dp_date >= '2024-10-10' AND dp_date <= '2024-10-15'"
+    df = execute_sql_query(query, database_name="RawData")
+    logging.debug(f"Query executed successfully. Dataframe shape: {df.shape}")
+    print(df.head())
+except Exception as e:
+    logging.error(f"Error occurred: {e}")
 
 
 '''Reading from Datbase Connection: main.py'''
-df = execute_sql_query(query="SELECT * from DP_CDR_Data where dp_date >= '2024-10-10' and dp_date <= curdate()",
+df = execute_sql_query(query="SELECT * from DP_CDR_Data where dp_date  between  '2024-10-10' and '2024-10-26'",
                        database_name="RawData")
 print(df)
 
@@ -92,6 +104,17 @@ for col in columns_to_compare:
         plt.show()
 
         plt.close()
+
+# summary = summary(df)
+# # sum_data =  sum_data(df)
+# sum_date = sum_data(df)
+# print(sum_date)
+#
+# # fig, ax = plt.subplots(figsize=(10, 6))
+# plt.plot(sum_date['DP_DATA_COUNT'], sum_date['DP_DATA_VOLUME'])
+# # ax.plot(sum_date['DP_DATE'], sum_date[[i for i in sum_date if i != 'DP_DATE']])
+# plt.legend()
+# plt.show()
 
 # summary = summary(df)
 # # sum_data =  sum_data(df)

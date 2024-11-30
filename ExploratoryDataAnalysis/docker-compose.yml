@@ -5,30 +5,16 @@ services:
     volumes:
       - ./output:/app/output
     environment:
-      - MYSQL_HOST=db
+      - MYSQL_HOST=flaskapp-flaskapp-db-1
       - MYSQL_USER=root
       - MYSQL_PASSWORD=a?xBVq1!
       - MYSQL_DATABASE=RawData
-    depends_on:
-      - db
     networks:
       - shared-network
-
-  db:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: a?xBVq1!
-      MYSQL_DATABASE: RawData
-    ports:
-      - "3307:3306" # Port mapping if you're running a second MySQL instance
-    volumes:
-      - db_data:/var/lib/mysql
-      - ./output:/app/output
-    networks:
-      - shared-network
-
-volumes:
-  db_data:
+    deploy:
+      resources:
+        limits:
+          memory: 4G  # Allocate 4 GB of memory to this container
 
 networks:
   shared-network:
