@@ -59,6 +59,8 @@ flaskapp/
     └── ml-data-pipeline-b8c32d82371e.json
 ```
 ---
+
+![Docker Architecture](PlantUMLDiagrams/Docker-Architecture.png)
 # Step 1: Creating Shared Network and Running Flaskapp Docker Multi Container
 Create a shared network using the the following command ```docker create network shared-network```.
 
