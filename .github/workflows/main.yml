@@ -1,0 +1,36 @@
+name: Execute DownloadDBfile.py
+
+on:
+  push:
+    paths:
+      - DownloadDBfile.py  # Trigger only if this file changes
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  run_script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
+
+      - name: Install Dependencies
+        run: pip install google-cloud-storage
+
+      - name: Set up GCP Key
+        env:
+          GCP_STORAGE_KEY: ${{ secrets.GCP_STORAGE_KEY }}
+        run: echo "$GCP_STORAGE_KEY" > /tmp/gcp-key.json
+
+      - name: Run Download Script
+        env:
+          GCP_STORAGE_KEY: ${{ secrets.GCP_STORAGE_KEY }}
+        run: python DownloadDBfile.py
+
+      - name: Clean up Key File
+        run: rm /tmp/gcp-key.json
