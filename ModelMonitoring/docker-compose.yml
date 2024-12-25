@@ -10,6 +10,8 @@ services:
       - "5001:5001"
     volumes:
       - ./output:/app/output
+    environment:
+      - NML_DISABLE_TELEMETRY=1
 
 networks:
   shared-network:
