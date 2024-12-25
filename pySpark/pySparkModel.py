@@ -12,10 +12,12 @@ import json
 '''Spark Session Creator: cv_model'''
 spark = SparkSession.builder \
     .appName("cv_model") \
-    .config("spark.executor.memory", "4g") \
-    .config("spark.driver.memory", "4g") \
+    .config("spark.executor.memory", "16g") \
+    .config("spark.driver.memory", "16g") \
     .config("spark.memory.offHeap.enable", True) \
-    .config("spark.memory.offHeap.size", "4g") \
+    .config("spark.memory.offHeap.size", "16g") \
+    .config("spark.executor.instances", "3") \
+    .config("spark.executor.cores", "3") \
     .config("spark.jars", "/opt/spark/jars/mysql-connector-java-8.0.25.jar") \
     .getOrCreate()
 spark.conf.set("spark.sql.shuffle.partitions", 200)
@@ -48,6 +50,7 @@ df = spark.read.jdbc(
     properties=db_properties
 )
 
+df = df.repartition(200, col('Date'))
 df.show()
 
 # Step 1: Calculate sum, mean, and standard deviation for specific columns

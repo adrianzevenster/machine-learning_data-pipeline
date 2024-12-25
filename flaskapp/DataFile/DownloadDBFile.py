@@ -14,6 +14,12 @@ def download_and_extract_gcs_file(storage_url, destination_dir):
     if not storage_url.startswith("gs://"):
         raise ValueError("Invalid GCS URL. It should start with 'gs://'.")
 
+    # Load Google Cloud credentials from the environment variable
+    key_file_path = "/tmp/gcp-key.json"
+    with open(key_file_path, "w") as key_file:
+        key_file.write(os.getenv("GCP_STORAGE_KEY"))
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_file_path
+
     # Parse bucket name and blob name from the URL
     parts = storage_url[5:].split("/", 1)
     if len(parts) != 2:
@@ -47,7 +53,7 @@ def download_and_extract_gcs_file(storage_url, destination_dir):
     print(f"Temporary gzipped file deleted: {gzipped_file_path}")
 
 # Example usage
-STORAGE_URL = "gs://ml-pipeline-az/RawData.csv.gz"
-DESTINATION_DIR = "./downloads"
-
-download_and_extract_gcs_file(STORAGE_URL, DESTINATION_DIR)
+if __name__ == "__main__":
+    STORAGE_URL = "gs://ml-pipeline-az/RawData.csv.gz"
+    DESTINATION_DIR = "./downloads"
+    download_and_extract_gcs_file(STORAGE_URL, DESTINATION_DIR)
