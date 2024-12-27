@@ -4,27 +4,34 @@ from matplotlib import pyplot as plt
 from sklearn.metrics import r2_score
 from main import execute_sql_query
 import seaborn as sns
-
+import json
 
 import logging
 from main import execute_sql_query
 
 logging.basicConfig(level=logging.DEBUG)
 
+# Load query parameters from JSON
 try:
+    with open('query_params.json', 'r') as file:
+        query_params = json.load(file)
+except Exception as e:
+    logging.error(f"Error loading query parameters: {e}")
+    raise
+
+try:
+    # Construct the SQL query dynamically
     logging.debug("Executing SQL query...")
-    query = "SELECT * FROM DP_CDR_Data WHERE dp_date >= '2024-10-10' AND dp_date <= '2024-10-15'"
+    query = f"""
+        SELECT * FROM DP_CDR_Data 
+        WHERE dp_date BETWEEN '{query_params['start_date']}' AND '{query_params['end_date']}'
+    """
     df = execute_sql_query(query, database_name="RawData")
     logging.debug(f"Query executed successfully. Dataframe shape: {df.shape}")
     print(df.head())
 except Exception as e:
     logging.error(f"Error occurred: {e}")
-
-
-'''Reading from Datbase Connection: main.py'''
-df = execute_sql_query(query="SELECT * from DP_CDR_Data where dp_date  between  '2024-10-10' and '2024-10-26'",
-                       database_name="RawData")
-print(df)
+    raise
 
 
 def summary(df):
