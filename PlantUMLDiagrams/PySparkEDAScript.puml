@@ -1,0 +1,73 @@
+@startuml
+allowmixing
+title Exploratory Data Analysis Class Structure and Workflow
+
+package "Scripts and Configs" {
+    component [main.py]
+    component [query_params.json]
+}
+
+class EDA {
+    -DataFrame: df
+    -String: database_name
+
+    +__init__(database_name: String)
+    +execute_sql_query(query: String) : DataFrame
+    +summary_statistics(df: DataFrame) : void
+    +sum_data_by_date(df: DataFrame) : DataFrame
+    +mean_data_by_date(df: DataFrame) : DataFrame
+    +calculate_r2(x: Series, y: Series) : float
+    +plot_feature_vs_target(df: DataFrame, feature: String, target: String) : void
+}
+
+EDA ..o Database
+
+class Database {
+    + RawData.DP_CDR_Data : Table
+    + execute_query(query: String, database_name: String) : DataFrame
+}
+
+class DataFrameAggregator {
+    + sum_data_by_date(df: DataFrame, columns: List[String]) : DataFrame
+    + mean_data_by_date(df: DataFrame, columns: List[String]) : DataFrame
+}
+
+class R2Calculator {
+    + calculate_r2(x: Series, y: Series) : float
+}
+
+class DataPlotter {
+    + plot_feature_vs_target(df: DataFrame, feature: String, target: String) : void
+    + save_plot(file_path: String) : void
+}
+
+class Logger {
+    + log_debug(message: String) : void
+    + log_error(message: String) : void
+}
+
+actor User
+
+EDA --> DataFrameAggregator : "Uses"
+EDA --> R2Calculator : "Uses"
+EDA --> DataPlotter : "Uses"
+EDA --> Logger : "Uses"
+
+class DataFrame <<Data Representation>> {
+    + DP_MOC_COUNT
+    + DP_MOC_DURATION
+    + DP_MTC_COUNT
+    + DP_MTC_DURATION
+    + DP_MOSMS_COUNT
+    + DP_MTSMS_COUNT
+    + DP_DATA_COUNT
+    + DP_DATA_VOLUME
+    + PSEUDO_CHURNED
+}
+
+Database --> DataFrame : "Query Returns"
+
+"Scripts and Configs" <-- User
+"Scripts and Configs" --> EDA
+
+@enduml
