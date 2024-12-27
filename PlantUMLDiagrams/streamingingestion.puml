@@ -1,0 +1,49 @@
+@startuml
+allowmixing
+title FlaskStreamingService Class Structure and Workflow
+
+package "Flask Application" {
+    component [streamingestion.py]
+    component [main.py]
+}
+
+class FlaskStreamingService {
+    -Flask: app
+    -String: database_url
+
+    +__init__(): void
+    +start_stream(): Response
+    +stream_data(df: DataFrame, batch_size: int, num_batches: int, interval: int): void
+    +create_random_batches_with_randomized_timestamps(df: DataFrame, batch_size: int, num_batches: int): void
+    +insert_into_database(df: DataFrame, table_name: String): void
+    +test_stream_data(df: DataFrame, batch_size: int, num_batches: int): void
+}
+
+FlaskStreamingService --> StreamingThread : "Runs in Background"
+FlaskStreamingService ..> Database : "Inserts Data"
+
+class Database {
+    + execute_sql_query(query: String, database_name: String): DataFrame
+    + DP_CDR_Data : Table
+}
+
+class StreamingThread <<multithreaded>> {
+    + run(target: Callable, args: Tuple): void
+    + stop(): void
+}
+
+actor User
+
+FlaskStreamingService --> Database : "Fetches Data"
+FlaskStreamingService --> StreamingThread : "Starts Thread"
+
+"Flask Application" <-- User : "Sends API Request"
+"Flask Application" --> FlaskStreamingService : "Handles Request"
+
+artifact "Generated Batches" <<data>> as generated_batches
+FlaskStreamingService --> generated_batches : "Produces"
+
+Database --> FlaskStreamingService : "Returns SQL Query Data"
+Database <-- generated_batches : "Receives Data Inserts"
+
+@enduml
