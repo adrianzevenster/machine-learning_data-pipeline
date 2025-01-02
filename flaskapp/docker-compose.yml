@@ -25,6 +25,8 @@ services:
       MYSQL_DATABASE: RawData
     ports:
       - "3307:3307"
+    volumes:
+      - ./init-scripts:/docker-entrypoint-initdb.d
     networks:
       - shared-network
     healthcheck:
