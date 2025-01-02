@@ -1,0 +1,45 @@
+@startuml
+allowmixing
+title Database Population Class Structure and Workflow
+
+package "Scripts and Configs" {
+    component [initializer.py]
+    component [RawData.csv]
+    component [environment variables]
+}
+
+class DatabaseInitializer {
+    -dict: db_config
+    -mysql.connector.Connection: conn
+    -mysql.connector.Cursor: cursor
+
+    +table_has_data(): bool
+    +create_table_from_csv(csv_file: String): void
+}
+
+DatabaseInitializer --> Database : "Interacts with"
+DatabaseInitializer ..> CSVFile : "Reads"
+
+class Database {
+    + RawData.DP_CDR_Data : Table
+    + information_schema.tables : Metadata Table
+    + execute_query(query: String) : ResultSet
+}
+
+class CSVFile <<Data Source>> {
+    + /app/RawData.csv : Data
+}
+
+artifact "Chunks of CSV Data" <<data>> as csv_chunks
+
+DatabaseInitializer --> csv_chunks : "Processes"
+csv_chunks --> Database : "Inserts Data"
+
+actor User
+
+User --> "Scripts and Configs" : "Executes Script"
+"Scripts and Configs" --> DatabaseInitializer : "Initializes Configs"
+
+DatabaseInitializer --> Database : "Checks and Creates Table"
+
+@enduml

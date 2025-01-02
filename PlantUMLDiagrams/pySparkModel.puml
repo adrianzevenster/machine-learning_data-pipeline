@@ -1,0 +1,82 @@
+@startuml
+allowmixing
+title PySparkModelPipeline Class Structure and Workflow
+
+package "docker-compose" {
+    component [docker-compose.yaml]
+    component [Dockerfile]
+}
+
+class PySparkModelPipeline {
+    -SparkSession: spark
+    -String: jdbc_url
+    -Map<String, String>: jdbc_connection
+
+    +__init__(app_name: String, jdbc_url: String, jdbc_driver_path: String, user: String, password: String)
+    +load_data(sql_query: String) : DataFrame
+    +transform_data(df: DataFrame) : DataFrame
+    +assemble_features(df: DataFrame, feature_columns: List[String]) : DataFrame
+    +oversample_minority_class(df: DataFrame, label_col: String, fraction: float) : DataFrame
+    +split_data(df: DataFrame, train_ratio: float) : (DataFrame, DataFrame)
+    +train_model(train_df: DataFrame, param_grid: ParamGridBuilder) : CrossValidatorModel
+    +make_predictions(test_df: DataFrame, model: CrossValidatorModel) : DataFrame
+    +save_predictions(predictions: DataFrame, table_name: String) : void
+    +evaluate_model(predictions: DataFrame) : float
+}
+
+SparkSession ..* PySparkModelPipeline
+PySparkModelPipeline ..o Database
+
+class SparkSession <<singleton>> {
+    +builder : SparkSession.Builder
+    +read.jdbc(url: String, table: String, properties: Map[String, String]) : DataFrame
+    +write.jdbc(url: String, table: String, mode: String, properties: Map[String, String])
+    +write.parquet(path: String, mode: String)
+}
+
+actor User
+
+class Database {
+    + RawData.Processed_Data : Table
+    + RawData.Model_Predictions : Table
+    + execute_query(query: String) : DataFrame
+}
+
+artifact "transformed data" <<transformed data>> as transformed_data
+
+class DataFrameAggregator {
+    + calculate_statistics(df: DataFrame, columns: List[String]) : DataFrame
+}
+
+class FeatureAssembler {
+    + assemble_feature_vector(df: DataFrame, feature_columns: List[String]) : DataFrame
+}
+
+class Oversampler {
+    + oversample_minority_class(df: DataFrame, label_col: String, fraction: float) : DataFrame
+}
+
+class ModelTrainer {
+    + train_random_forest(train_df: DataFrame, param_grid: ParamGridBuilder) : CrossValidatorModel
+}
+
+class ModelEvaluator {
+    + evaluate_predictions(predictions: DataFrame) : float
+}
+
+class PredictionProcessor {
+    + process_predictions(predictions: DataFrame) : DataFrame
+    + save_predictions(predictions: DataFrame, table_name: String)
+}
+
+PySparkModelPipeline --> DataFrameAggregator : "Uses"
+PySparkModelPipeline --> FeatureAssembler : "Uses"
+PySparkModelPipeline --> Oversampler : "Uses"
+PySparkModelPipeline --> ModelTrainer : "Uses"
+PySparkModelPipeline --> ModelEvaluator : "Uses"
+PySparkModelPipeline --> PredictionProcessor : "Uses"
+
+"docker-compose" <-- User
+"docker-compose" --> PySparkModelPipeline
+
+@enduml

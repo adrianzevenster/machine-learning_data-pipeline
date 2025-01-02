@@ -87,6 +87,8 @@ curl -X POST http://127.0.0.1:5000/start_stream \
 -d '{"batch_size": 1000, "num_batches": 5, "interval": 10}' 
 ```
 ***
+
+![Exploratory Data Analysis](PlantUMLDiagrams/PySparkEDAScript.png)
 # Step 2: Exploratotry Data Analysis
 In the _/ExploratoryDataAnalysis_ directory the following command can be run: ```docker compose up --build```.
 
@@ -94,6 +96,9 @@ This container istance runs the _EDA.py_ script that is responsible for graphing
 
 ***
 
+![Data Preparation](PlantUMLDiagrams/PySparkAnalysis.png)
+
+![Machine Learning Model](PlantUMLDiagrams/pySparkModel.png)
 # Step 3: Data Preparation and Machine Learning Model
 A PySpark job retrieves data from the MySQL docker instance, performs data cleansing and transformation the data. The results are stored into the _RawData_ database under _Processed_Data_, and a parquet file is generated from same stored data for data validation or potentially further data exploration.
 
@@ -116,6 +121,7 @@ Be sure to specify date ranges to be retrieved from the database in the ```json.
 ```
 ***
 
+![Model Monitoring](PlantUMLDiagrams/Model_Monitoring.png)
 # Step 4: Model Performance Monitoring
 
 The final stage of the project evaluates model metrics of each predicion by evaluation precision, recall and the F1 score. Deviation accross model runs are captured, any deviations could be indicative of:

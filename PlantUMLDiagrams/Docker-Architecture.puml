@@ -1,106 +1,144 @@
 @startuml
 left to right direction
 
-package "Docker Compose Setup: flaskapp" as docker-compose-flask{
-
-    folder "docker-compose.yaml"{
-    [Dockerfile flaskapp]
-    [docker-compose flaskapp]
-
+package "Docker Compose Setup 2: EDA" as eda {
+    folder "docker-compose.yaml" as eda_compose {
+        [docker-compose EDA]
+        [Dockerfile EDA]
     }
 
-    node "flaskapp container" as flaskapp-container{
-    [flaskapp-app]
-        folder "flaskapp scripts"{
-                [streamstream.py]
-                [database.py]
-            }
-    }
-     note right of "flaskapp scripts"
-        - initializes docker
-        - builds mysql instance
-        - runs streamstream.py
-        - initalized by "API Trigger"
-     end note
+    node "Exploratory Data Analysis Container" as eda_container {
+        [python-app]
 
-    node "Database Containerized"{
+        folder "EDA Scripts" {
+            [EDA.py]
+            [main.py]
+        }
+    }
+
+    folder "output" as output_eda {
+        [correlation_plots.png]
+    }
+}
+note right of "EDA Scripts"
+    - Reads from [DP_CDR_Data]
+end note
+
+package "Docker Compose Setup 1: Flask App" as flaskapp {
+    folder "docker-compose.yaml" as flaskapp_compose {
+        [Dockerfile flaskapp]
+        [docker-compose flaskapp]
+        [init_db.sh]
+        [streamrequirements.txt]
+    }
+
+    node "Flask App Container" as flaskapp_container {
+        [flaskapp-app]
         [flaskapp-db]
 
-        folder "Database Tables"{
+        folder "Flask App Scripts" {
+            [streamingestion.py]
+            [database.py]
+        }
+    }
+    note right of "Flask App Scripts"
+        - Initializes Docker
+        - Builds MySQL instance
+        - Runs [streamingestion.py]
+        - Initialized by "API Trigger"
+    end note
+
+    node "Database Containerized" as database_container {
+        folder "Database Tables" {
             [DP_CDR_Data]
             [Processed_Data]
             [Model_Predictions]
             [CDR_Summary]
-            }
+        }
     }
 
-    cloud "streaming API Trigger"{
-        [curl -X POST http://127.0.0.1:5000/start_stream -H "Content-Type: application/json" -d '{"batch_size": 1000, "num_batches": 5, "interval": 10}']
-     }
-        note right of "streaming API Trigger"
-        CURL -V
-
-        end note
+    cloud "Streaming API Trigger" as stream_api_trigger {
+        [REST API]
     }
+}
 
-[streaming API Trigger]-->[flaskapp-app]
-[streamstream.py]-->[DP_CDR_Data]: writes
-["docker-compose.yaml"]--[flaskapp-container]
-
-
-package "Docker Comopse Setup: PySpark App"{
-    folder "docker-compose.yml"{
+package "Docker Compose Setup 3: PySpark App" as pyspark {
+    folder "docker-compose.yml" as pyspark_compose {
         [docker-compose model config]
         [Dockerfile]
-        [streamrequirement.txt]
-
+        [entrypoint.sh]
     }
 
-    node "PySpark Container"{
-        [pyspark-flaskapp]
-        [pyspark-flaskapp-db]
-        folder "PySpark Scripts"{
+    node "PySpark Container" as pyspark_container {
+        [pyspark-analysis]
+        [pyspark-model]
+
+        folder "PySpark Scripts" {
             [PySparkAnalysis.py]
             [pySparkModel.py]
-            }
-           note right of "PySpark Scripts"
-            Runs the following scripts:
-            - PySparkAnalysis reads from db
-            - Transforms files
-           end note
-
-    folder "parquet files"{
-        [parquet]
         }
-}
-}
-[flaskapp-db]<--->[pyspark-flaskapp-db]:shared-network
-[PySparkAnalysis.py] --> [Processed_Data]: writes
-[PySparkAnalysis.py]-->[parquet]: stores
-[pyspark-flaskapp] --> [PySpark Scripts]
-[pySparkModel.py] --> [Model_Predictions]: writes
-[pyspark-flaskapp-db]--[pyspark-flaskapp]: shared network
 
-
-package "Docker Compose Setup 3: Model Monitoring"{
-    folder "docker-compse.yaml" as model_monitoring{
-     [docker-compose model monitoring]
-     [Dockerfile model monitoring]
-     }
-
-    node "model monitoring"{
-        [Model_Monitoring.py]
+        folder "Parquet Files" {
+            [parquet]
         }
     }
-database "MySQL\n" as mysql{
-    [CDRDailySymmary]
+    note right of "PySpark Scripts"
+        - Reads from [DP_CDR_Data]
+        - Transforms files: stores [Processed_Data]
+        - Writes [Model_Predictions]
+    end note
 }
+
+package "Docker Compose Setup 4: Model Monitoring" as monitoring {
+    folder "docker-compose.yaml" as monitoring_compose {
+        [docker-compose model monitoring]
+        [Dockerfile model monitoring]
+    }
+
+    node "Model Monitoring" as monitoring_scripts {
+        [monitoring-script]
+        folder "Monitoring Scripts" {
+            [Model_Monitoring.py]
+            [polling_db.py]
+        }
+    }
+
+    folder "Output" as monitoring_output {
+        [performance_plot.png]
+        [performance_report.csv]
+    }
+
+    cloud "Monitoring API" as monitoring_api {
+        [REST API Trigger]
+    }
 }
 
-[CDRDailySymmary]-->[CDR_Summary]: Stores
-[DP_CDR_Data]--[mysql]
-[flaskapp-db]-->[model_monitoring]: shared-network
-[model_monitoring]-->[Model_Predictions]
+database "MySQL" as mysql {
+    [CDRDailySummary]
+}
 
+' Relationships
+[stream_api_trigger] --> [flaskapp-app]
+[streamingestion.py] --> [DP_CDR_Data] : writes
+[flaskapp_compose] --* [flaskapp_container]
+[flaskapp-db] --o [database_container]
+[python-app] --> [flaskapp-db] : shared-network
+[eda_container] --> [output_eda]
+[eda_compose] --* [eda_container]
+[monitoring_api] --> [monitoring_scripts]
+[monitoring_compose] --* [monitoring_scripts]
 
+[flaskapp-db] <--> [pyspark-analysis] : shared-network
+[PySparkAnalysis.py] --> [Processed_Data] : writes
+[PySparkAnalysis.py] --> [parquet] : stores
+[pyspark-analysis] --> [PySpark Scripts]
+[pySparkModel.py] --> [Model_Predictions] : writes
+[pyspark-model] -- [pyspark-analysis] : shared network
+[Processed_Data] --> [pySparkModel.py] : reads
+
+[monitoring_scripts] --> [monitoring_output]
+[database_container] --> [mysql]
+[CDRDailySummary] --> [CDR_Summary] : stores
+[flaskapp-db] --> [monitoring_compose] : shared-network
+[monitoring_scripts] --> [Model_Predictions] : reads
 @enduml
