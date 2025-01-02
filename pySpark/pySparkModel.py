@@ -28,8 +28,8 @@ spark.conf.set("spark.sql.shuffle.partitions", 200)
 with open('/app/config.json', 'r') as config_file:
     config = json.load(config_file)
 
-start_date = config['start_date']
-end_date = config['end_date']
+start_date = config['processed_start']
+end_date = config['processed_end']
 # Use a SQL query to filter dates within the specified range
 query = f"(SELECT * FROM Processed_Data WHERE Date BETWEEN '{start_date}' AND '{end_date}') AS date_filtered_data"
 
