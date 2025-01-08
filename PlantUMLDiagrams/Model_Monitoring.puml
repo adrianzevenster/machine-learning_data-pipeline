@@ -1,0 +1,102 @@
+@startuml
+allowmixing
+title Model Monitoring Service Class Structure and Workflow
+
+package "Flask Application" as flask_app{
+    component [Model_Monitoring.py]
+    component [output/performance_plot.png]
+    component [output/performance_report.csv]
+}
+
+class ModelMonitoringService {
+    -Flask: app
+    -SparkSession: spark
+    -nml.PerformanceCalculator: nml_monitor
+
+    +run_monitoring(): Response
+}
+
+ModelMonitoringService ..> SparkSession : "Uses for Data Fetching"
+ModelMonitoringService ..> NannyML : "Performs Monitoring"
+
+class SparkSession <<singleton>> {
+    +builder: SparkSession.Builder
+    +read.jdbc(url: String, table: String, properties: Map[String, String]): DataFrame
+}
+
+class NannyML {
+    + PerformanceCalculator: Class
+    + fit(reference_data: DataFrame): void
+    + calculate(current_data: DataFrame): Metrics
+    + plot(): Plot
+}
+
+class Database {
+    + RawData.model_predictions : Table
+}
+
+class Plot <<Visualization>> {
+    + show(): void
+    + write_image(path: String): void
+}
+
+class Metrics <<Performance Results>> {
+    + to_df(): DataFrame
+    + plot(): Plot
+}
+
+artifact "Monitoring Results" <<output>> as monitoring_results
+artifact "Performance Report CSV" <<output>> as performance_csv
+artifact "Performance Plot Image" <<output>> as performance_plot
+
+ModelMonitoringService --> Database : "Fetches Predictions Data"
+ModelMonitoringService --> NannyML : "Calculates Metrics"
+NannyML --> Metrics : "Produces"
+Metrics --> Plot : "Visualized as"
+
+ModelMonitoringService --> monitoring_results : "Produces"
+monitoring_results --> performance_csv : "CSV Format"
+monitoring_results --> performance_plot : "Plot Format"
+
+actor User
+
+User --> flask_app : "Starts Monitoring"
+flask_app --> ModelMonitoringService : "Executes Monitoring Workflow"
+
+
+package "Polling Service" as polling_service {
+    component [polling_db.py]
+    component [http://localhost:5001/run-monitoring]
+}
+
+class PollingDBService {
+    -datetime: last_check
+
+    +check_for_updates(last_check: datetime): (bool, datetime)
+    +trigger_monitoring(): void
+}
+
+PollingDBService ..> Database : "Checks for Updates"
+PollingDBService ..> MonitoringService : "Triggers Monitoring"
+polling_service ..> PollingDBService
+class Database {
+
+    + SELECT MAX(Date): datetime
+}
+
+class MonitoringService {
+    + run_monitoring(): void
+    + API Endpoint: http://localhost:5001/run-monitoring
+}
+
+actor User
+
+PollingDBService --> Database : "Queries for Latest Data"
+PollingDBService --> MonitoringService : "Triggers if Updates Found"
+
+artifact "Polling Logs" <<output>> as polling_logs
+
+PollingDBService --> polling_logs : "Generates"
+
+
+@enduml
