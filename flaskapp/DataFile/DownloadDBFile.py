@@ -14,10 +14,10 @@ def download_and_extract_gcs_file(storage_url, destination_dir):
     if not storage_url.startswith("gs://"):
         raise ValueError("Invalid GCS URL. It should start with 'gs://'.")
 
-    # Load Google Cloud credentials from the environment variable
-    key_file_path = "/tmp/gcp-key.json"
-    with open(key_file_path, "w") as key_file:
-        key_file.write(os.getenv("GCP_STORAGE_KEY"))
+    # Load Google Cloud credentials directly from the JSON file
+    key_file_path = "GCP-Key.json"  # Replace with the correct path to your GCP JSON key
+    if not os.path.exists(key_file_path):
+        raise FileNotFoundError(f"Key file not found: {key_file_path}")
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_file_path
 
     # Parse bucket name and blob name from the URL
@@ -55,5 +55,5 @@ def download_and_extract_gcs_file(storage_url, destination_dir):
 # Example usage
 if __name__ == "__main__":
     STORAGE_URL = "gs://ml-pipeline-az/RawData.csv.gz"
-    DESTINATION_DIR = "./downloads"
+    DESTINATION_DIR = "../flaskapp"
     download_and_extract_gcs_file(STORAGE_URL, DESTINATION_DIR)
