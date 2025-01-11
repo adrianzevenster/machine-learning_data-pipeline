@@ -46,17 +46,21 @@
 ---
 # STEP 0: Downloading Data Files from Google Cloud Storage
 
-Head to the following directory and run python script _DownloadDBFile_. <br>
-- Ensure that gcloud bucket key has been added to variable path. <br>
-- Run the script _DownloadDBFile.py_ and place the ouptu file - _RawData.csv_ under the ```flaskapp``` directory. <br>
+Head to the following _/flaskapp/DataFile_ directory and run python script _DownloadDBFile_. <br>
+- Google Cloud Platform Key is added to directory via GitHub Workflows. 
+- Variable path is automatically added by the script. <br>
+- Run the script _DownloadDBFile.py_ this will unzip and place the raw data - _RawData.csv_ - under the ```flaskapp``` directory. <br>
 - This script fetches the RawData used to populated the docker database.
-  
+
+## Requirements
+```pip install google-cloud-storage```
+
 ### directory structure
 ```
 flaskapp/ 
 |--- DataFile/ 
 |   └── DownloadDBFile.py 
-    └── ml-data-pipeline-b8c32d82371e.json
+    └── GCP-Key.json
 ```
 ---
 
@@ -68,7 +72,7 @@ Create a shared network using the the following command ```docker create network
 
  - From the _/flaskapp directory run the command_ ```docker compose up --build```.
 
-This will run the docker-compose and Dockerfile which creates an instance ```flaskapp-flaskappp-db```, the _DataBase.py_ populates the mysql instance on the inital run.
+This will run the docker-compose and Dockerfile which creates an instance ```flaskapp-flaskappp-db-1```, the _DataBase.py_ populates the mysql instance on the inital run.
 
 The _RawData_ database now has the table _DP_CDR_Data_.
 
@@ -94,6 +98,8 @@ In the _/ExploratoryDataAnalysis_ directory the following command can be run: ``
 
 This container istance runs the _EDA.py_ script that is responsible for graphing the correlation between features, after the script has been exectud results are stored in the _/output_ directory. These correlations informes the feature generation for the machine learning model to be executed.
 
+To run the script specify the data parameters in ```query_params.json```, this retrieves the selected dates from DP_CDR_Data.
+
 ***
 
 ![Data Preparation](PlantUMLDiagrams/PySparkAnalysis.png)
@@ -114,8 +120,11 @@ Be sure to specify date ranges to be retrieved from the database in the ```json.
 
 ```
 {
-  "start_date": "<date_value>",
+  "start_date": "<date_value>", # PySparkAnalysis Parameters
   "end_date": "<date_value>"
+
+  "processed_start": "<date_value>", #pySparkModel Parameters
+  "processed_end": "<date_value>"
 }
 
 ```
@@ -138,7 +147,5 @@ From the _ModelMonitoring_ directory run the command - ```docker compose up --bu
 
 ```
 curl http://localhost:5001/run-monitoring 
-However, a polling script is used to check for new inserts into the _Model_Predictions_ table, should there be any new inserts the script will execute automatically.
-
 ```
 However, a polling script is used to check for new inserts into the _Model_Predictions_ table, should there be any new inserts the script will execute automatically.
