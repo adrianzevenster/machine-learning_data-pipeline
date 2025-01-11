@@ -24,11 +24,19 @@ jobs:
       - name: Create GCP Key File
         run: |
           echo "${{ secrets.GCP_STORAGE_KEY }}" > GCP-Key.json
+          echo "Checking if GCP-Key.json was created:"
+          ls -l GCP-Key.json
+          echo "Previewing first few lines of GCP-Key.json:"
+          head -n 5 GCP-Key.json
 
       # Step 4: Export the environment variable for the key file
       - name: Set GOOGLE_APPLICATION_CREDENTIALS
         run: echo "GOOGLE_APPLICATION_CREDENTIALS=$PWD/GCP-Key.json" >> $GITHUB_ENV
 
-      # Step 5: Run your Python script
+      # Step 5: Verify the GOOGLE_APPLICATION_CREDENTIALS variable
+      - name: Verify Environment Variable
+        run: echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS"
+
+      # Step 6: Run your Python script
       - name: Run Python Script
         run: python machine-learning_data-pipeline/flaskapp/DataFile/DownloadDBFile.py
