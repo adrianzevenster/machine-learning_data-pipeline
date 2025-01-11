@@ -23,7 +23,7 @@ jobs:
       # Step 3: Create the GCP key file from GitHub secret
       - name: Create GCP Key File
         run: |
-          echo "${{ secrets.GCP_SECRET_KEY }}" > GCP-Key.json
+          echo "${{ secrets.GCP_STORAGE_KEY }}" > GCP-Key.json
 
       # Step 4: Export the environment variable for the key file
       - name: Set GOOGLE_APPLICATION_CREDENTIALS
