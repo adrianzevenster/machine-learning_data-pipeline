@@ -55,5 +55,5 @@ def download_and_extract_gcs_file(storage_url, destination_dir):
 # Example usage
 if __name__ == "__main__":
     STORAGE_URL = "gs://ml-pipeline-az/RawData.csv.gz"
-    DESTINATION_DIR = "../flaskapp"
+    DESTINATION_DIR = "../"
     download_and_extract_gcs_file(STORAGE_URL, DESTINATION_DIR)
