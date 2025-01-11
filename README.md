@@ -51,8 +51,11 @@ Head to the following _/flaskapp/DataFile_ directory and run python script _Down
 - Variable path is automatically added by the script. <br>
 ## Steps to run _DownloadDBFile.py_
 0.1 - The GitHub Workflow _main.yml_ stores the _GCP-Key.json_ in the flaskapp/DataFile directory
+
 0.2 - Run the pip command specified in "Requirements"
+
 0.3 - Run the _DonwloadDBFile.py_ locally
+
 0.4 - This will place the RawData.csv required for the docker database population in the /flaskapp directory
 
 ## Requirements
