@@ -1,20 +1,32 @@
-name: Debug GCP Key Secret
+name: Setup GCP Key
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Allow manual trigger of the workflow
 
 jobs:
-  debug:
+  setup_key:
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout the repository
       - name: Checkout Repository
         uses: actions/checkout@v3
 
+      # Step 2: Decode and Write the GCP Key File
       - name: Write GCP Key File
         run: |
-          echo "${{ secrets.GCP_STORAGE_KEY }}" > GCP-Key.json
+          echo "Writing GCP-Key.json from secret..."
+          echo "${{ secrets.GCP_STORAGE_KEY }}" | jq '.' > GCP-Key.json
+          echo "Created GCP-Key.json. Verifying content:"
+          head -n 5 GCP-Key.json
 
+      # Step 3: Verify File Creation
+      - name: Verify File Exists
+        run: |
+          echo "Checking for GCP-Key.json file:"
+          ls -l GCP-Key.json
+
+      # Step 4: Optional - Upload the Key File as an Artifact
       - name: Upload GCP Key as Artifact
         uses: actions/upload-artifact@v3
         with:
