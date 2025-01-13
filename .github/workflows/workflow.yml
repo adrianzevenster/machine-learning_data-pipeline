@@ -1,7 +1,7 @@
 name: Setup GCP Key
 
 on:
-  workflow_dispatch:  # Allow manual trigger of the workflow
+  workflow_dispatch:
 
 jobs:
   setup_key:
@@ -11,17 +11,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Write GCP Key File
+      - name: Decode and Write GCP Key File
         run: |
-          echo "Decoding and writing GCP-Key.json..."
-          printf "%s" "${{ secrets.GCP_STORAGE_KEY }}" > GCP-Key.json
+          echo "Decoding GCP-Key.json from base64..."
+          echo "${{ secrets.GCP_STORAGE_KEY_B64 }}" | base64 -d > GCP-Key.json
           echo "Created GCP-Key.json. Verifying content:"
           head -n 5 GCP-Key.json
-
-      - name: Verify File Exists
-        run: |
-          echo "Checking for GCP-Key.json file:"
-          ls -l GCP-Key.json
 
       - name: Upload GCP Key as Artifact
         uses: actions/upload-artifact@v3
