@@ -22,3 +22,9 @@ jobs:
         run: |
           echo "Checking for GCP-Key.json file:"
           ls -l GCP-Key.json
+
+      - name: Upload GCP Key as Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: GCP-Key
+          path: GCP-Key.json
