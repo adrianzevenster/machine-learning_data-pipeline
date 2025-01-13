@@ -15,7 +15,7 @@ def download_and_extract_gcs_file(storage_url, destination_dir):
         raise ValueError("Invalid GCS URL. It should start with 'gs://'.")
 
     # Load Google Cloud credentials directly from the JSON file
-    key_file_path = "GCP-Key.json"  # Replace with the correct path to your GCP JSON key
+    key_file_path = "gcp-key.json"  # Replace with the correct path to your GCP JSON key
     if not os.path.exists(key_file_path):
         raise FileNotFoundError(f"Key file not found: {key_file_path}")
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_file_path

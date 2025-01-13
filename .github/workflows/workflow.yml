@@ -1,19 +1,20 @@
-name: Setup GCP Key for CI/CD
+name: Debug GCP Key Secret
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
-  setup_env:
+  debug:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      # Create GCP Key File from Secret
-      - name: Write GCP Key File
+      - name: Debug Secret Value
         run: |
+          echo "${{ secrets.GCP_STORAGE_KEY }}" | head -n 5
           echo "${{ secrets.GCP_STORAGE_KEY }}" > GCP-Key.json
-          ls -l GCP-Key.json
-          head -n 5 GCP-Key.json  # Debugging: Preview the file
+          echo "Key file created. Previewing content:"
+          head -n 5 GCP-Key.json
+        shell: bash
