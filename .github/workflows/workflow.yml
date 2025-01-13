@@ -11,10 +11,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Decode and Write GCP Key File
+      - name: Write GCP Key File
         run: |
-          echo "Decoding GCP-Key.json from base64 secret..."
-          echo "${{ secrets.GCP_STORAGE_KEY }}" | base64 --decode > GCP-Key.json
+          echo "Writing GCP-Key.json from single-line secret..."
+          echo "${{ secrets.GCP_STORAGE_KEY }}" > GCP-Key.json
           echo "Created GCP-Key.json. Verifying content:"
           head -n 5 GCP-Key.json
 
