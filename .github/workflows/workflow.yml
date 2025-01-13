@@ -1,0 +1,19 @@
+name: Setup GCP Key for CI/CD
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup_env:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      # Create GCP Key File from Secret
+      - name: Write GCP Key File
+        run: |
+          echo "${{ secrets.GCP_STORAGE_KEY }}" > GCP-Key.json
+          ls -l GCP-Key.json
+          head -n 5 GCP-Key.json  # Debugging: Preview the file
