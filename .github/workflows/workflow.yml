@@ -11,18 +11,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Debug Secret Content
+      - name: Write GCP Key File
         run: |
-          echo "${{ secrets.GCP_STORAGE_KEY }}" | head -n 5
           echo "${{ secrets.GCP_STORAGE_KEY }}" > GCP-Key.json
-          echo "Created GCP-Key.json. Previewing content:"
-          head -n 5 GCP-Key.json
 
-      - name: Verify File Creation
-        run: |
-          echo "Checking current directory:"
-          pwd
-          echo "Listing files in the current directory:"
-          ls -l
-          echo "Checking for GCP-Key.json file:"
-          ls -l GCP-Key.json
+      - name: Upload GCP Key as Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: GCP-Key
+          path: GCP-Key.json
