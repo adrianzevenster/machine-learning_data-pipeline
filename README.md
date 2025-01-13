@@ -46,17 +46,21 @@
 ---
 # STEP 0: Downloading Data Files from Google Cloud Storage
 
-Head to the following _/flaskapp/DataFile_ directory and run python script _DownloadDBFile_. <br>
-- Google Cloud Platform Key is added to directory via GitHub Workflows. 
-- Variable path is automatically added by the script. <br>
+GitHub Workflow is used to generate an artifact containing the Google Cloud Storage Key allowing for access to the cloud storage bucket that retrieves the raw data used to populate the _RawData_ database docker instance. Once the key has been made available the script _DownloadDBFile.py_ retrieves the raw data from cloud bucket.
 ## Steps to run _DownloadDBFile.py_
-0.1 - The GitHub Workflow _main.yml_ stores the _GCP-Key.json_ in the flaskapp/DataFile directory
+0.1 - The GitHub Workflow workflow.yml_ creates an the _GCP-Key.json_ artifact
+
+0.1.1 - Head to "Actions" on GitHub >> select _Setup GCP Key_ >> run the workflow
+
+0.1.2 - This creates an GCP-Key.json.zip artifact, download artifact and place in _flaskapp/DataFile_ directory
+
+0.1.3 - Use the command ```unzip GCP-Key.json.zip``` command
 
 0.2 - Run the pip command specified in "Requirements"
 
-0.3 - Run the _DonwloadDBFile.py_ locally
+0.2.1 - Run the _DonwloadDBFile.py_ locally
 
-0.4 - This will place the RawData.csv required for the docker database population in the /flaskapp directory
+0.2.2 - This will place the RawData.csv required for the docker database population in the /flaskapp directory
 
 ## Requirements
 ```pip install google-cloud-storage```
