@@ -1,0 +1,25 @@
+name: Setup GCP Key
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup_key:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Decode and Write GCP Key File
+        run: |
+          echo "Decoding GCP-Key.json from base64..."
+          echo "${{ secrets.GCP_STORAGE_KEY_B64 }}" | base64 -d > GCP-Key.json
+          echo "Created GCP-Key.json. Verifying content:"
+          head -n 5 GCP-Key.json
+
+      - name: Upload GCP Key as Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: GCP-Key
+          path: GCP-Key.json

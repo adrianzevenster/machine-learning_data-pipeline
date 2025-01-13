@@ -3,31 +3,45 @@ import nannyml as nml
 import pandas as pd
 from pyspark.sql import SparkSession
 import matplotlib.pyplot as plt
+import os
 
+# Initialize Flask app
 app = Flask(__name__)
 
 @app.route('/run-monitoring', methods=['GET'])
 def run_monitoring():
     try:
+        # Ensure output directory exists
+        output_dir = '/app/output/'
+        os.makedirs(output_dir, exist_ok=True)
+
         # Spark session
         spark = SparkSession.builder \
             .appName("Model Monitoring") \
             .config("spark.driver.extraClassPath", "/app/mysql-connector-java-8.0.25.jar") \
-            .config("spark.driver.memory", "2g") \
+            .config("spark.driver.memory", "4g") \
             .getOrCreate()
 
-
-        # Connect to the database using flaskapp-db as the host
+        # Fetch data
         predictions_df = spark.read.jdbc(
             url="jdbc:mysql://flaskapp-flaskapp-db-1:3306/RawData",
             table="model_predictions",
             properties={"user": "root", "password": "a?xBVq1!"}
         )
 
-        # Convert to pandas DataFrame
         predictions_pd = predictions_df.select("label", "prediction", "probability_0", "probability_1", "Date").toPandas()
 
-        # Initialize NannyML's PerformanceCalculator
+        # Debug unique labels
+        unique_labels = predictions_pd['label'].unique()
+        print(f"Unique labels in the dataset: {unique_labels}")
+
+        # Skip processing if single-class data
+        if len(unique_labels) < 2:
+            warning_message = "Single-class data detected, skipping calculations."
+            print(warning_message)
+            return jsonify({"warning": warning_message}), 200
+
+        # Initialize NannyML
         nml_monitor = nml.PerformanceCalculator(
             problem_type='classification',
             y_true='label',
@@ -37,34 +51,22 @@ def run_monitoring():
             metrics=['roc_auc', 'f1', 'accuracy']
         )
 
-        # Fit the reference data
+        # Fit reference data
         nml_monitor.fit(reference_data=predictions_pd)
 
         # Calculate performance metrics
         results = nml_monitor.calculate(predictions_pd)
-        # plot = results.plot()
-        # plt.draw()
 
-        # fig, ax = plt.subplots()
-        # results.plot(ax=ax)
-        # fig.canvas.draw()
+        # Save results
+        results.plot().write_image(os.path.join(output_dir, 'performance_plot.png'))
+        results.to_df().to_csv(os.path.join(output_dir, 'performance_report.csv'), index=False)
 
-        results.plot().show()
-        plt.draw()
-        plt.tight_layout()
-
-
-        # plot.savefig('app/output/performance_plot.png')
-        results.plot().write_image('/app/output/performance_plot.png')
-
-        # Convert the results to a pandas DataFrame and save it to CSV
-        results_df = results.to_df()
-        results_df.to_csv('/app/output/performance_report.csv', index=False)
-
-        # Return success message
         return jsonify({"message": "Monitoring completed and saved."}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
 
 
 if __name__ == '__main__':

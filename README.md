@@ -49,8 +49,14 @@
 Head to the following _/flaskapp/DataFile_ directory and run python script _DownloadDBFile_. <br>
 - Google Cloud Platform Key is added to directory via GitHub Workflows. 
 - Variable path is automatically added by the script. <br>
-- Run the script _DownloadDBFile.py_ this will unzip and place the raw data - _RawData.csv_ - under the ```flaskapp``` directory. <br>
-- This script fetches the RawData used to populated the docker database.
+## Steps to run _DownloadDBFile.py_
+0.1 - The GitHub Workflow _main.yml_ stores the _GCP-Key.json_ in the flaskapp/DataFile directory
+
+0.2 - Run the pip command specified in "Requirements"
+
+0.3 - Run the _DonwloadDBFile.py_ locally
+
+0.4 - This will place the RawData.csv required for the docker database population in the /flaskapp directory
 
 ## Requirements
 ```pip install google-cloud-storage```
@@ -61,6 +67,7 @@ flaskapp/
 |--- DataFile/ 
 |   └── DownloadDBFile.py 
     └── GCP-Key.json
+| RawData.csv
 ```
 ---
 
@@ -68,11 +75,11 @@ flaskapp/
 # Step 1: Creating Shared Network and Running Flaskapp Docker Multi Container
 Create a shared network using the the following command ```docker create network shared-network```.
 
--> NOTE: It might be required to add ```docker network connect shared-network flaskapp-flaskapp-db-1```.
+> NOTE: It might be required to create the docker network manually, this can be done with the following two commands: ```docker network connect shared-network flaskapp-flaskapp-db-1``` and ```docker network connect shared-network flaskapp-flaskapp-app-1``` .
 
- - From the _/flaskapp directory run the command_ ```docker compose up --build```.
+## 1.1 - From the _/flaskapp_ directory run the command_ ```docker compose up --build```.
 
-This will run the docker-compose and Dockerfile which creates an instance ```flaskapp-flaskappp-db-1```, the _DataBase.py_ populates the mysql instance on the inital run.
+This will run the docker-compose and Dockerfile which creates the instances ```flaskapp-flaskappp-db-1``` and ```flaskapp-flaskapp-app-1```, the _DataBase.py_ populates the mysql instance on the inital run in the ```flaskapp-flaskapp-db-1``` container 
 
 The _RawData_ database now has the table _DP_CDR_Data_.
 
@@ -96,10 +103,16 @@ curl -X POST http://127.0.0.1:5000/start_stream \
 # Step 2: Exploratotry Data Analysis
 In the _/ExploratoryDataAnalysis_ directory the following command can be run: ```docker compose up --build```.
 
-This container istance runs the _EDA.py_ script that is responsible for graphing the correlation between features, after the script has been exectud results are stored in the _/output_ directory. These correlations informes the feature generation for the machine learning model to be executed.
+This container instance runs the _EDA.py_ script that is responsible for graphing the correlation between features, after the script has been exectud results are stored in the _/output_ directory. These correlations informes the feature generation for the machine learning model to be executed.
 
-To run the script specify the data parameters in ```query_params.json```, this retrieves the selected dates from DP_CDR_Data.
-
+## 2.1 To run the script, first specify the data parameters in ```query_params.json```, this retrieves the selected dates from DP_CDR_Data.
+```
+{
+  "start_date": "<date_value>",
+  "end_date": "<date_value>"
+}
+```
+The resulting graphs of the correlation plots are stored in the _/output_ directory, specified in the docker volumes.
 ***
 
 ![Data Preparation](PlantUMLDiagrams/PySparkAnalysis.png)
@@ -110,13 +123,13 @@ A PySpark job retrieves data from the MySQL docker instance, performs data clean
 
 Hereon another PySpark job trains a Random Forest Classifier to predict customer churn. Data is split into training and testing sets and vectorization transformations are performed. The model then used the lables to create a probability predicions on likelihood to churn. Result are stored under _Model_Predictions_ in the _RawData_ database.
 
-To run the multi container run the command: ```docker compose up --build``` from the _pyspark_ directory. 
+## 3.1 To run the multi container run the command: ```docker compose up --build``` from the _pyspark_ directory. 
 
 This will intantiate ```pyspark-pyspark-analysis-1```, responsible for transforming and cleaning the data to be used as the model input. 
 
 With the ```pyspark-pyspark-model-1``` instance runs the model and generates predictions for customer churn. ```pyspark-pyspark-model-1``` only runs after the analysis script has sucessfully exectud.
 
-Be sure to specify date ranges to be retrieved from the database in the ```json.config``` file. This file used the takes data parameters to be used as input to both data transformations and model creation.
+## 3.2 - Be sure to specify date ranges to be retrieved from the database in the ```json.config``` file. This file used the takes data parameters to be used as input to both data transformations and model creation.
 
 ```
 {
@@ -128,6 +141,7 @@ Be sure to specify date ranges to be retrieved from the database in the ```json.
 }
 
 ```
+> Note: Docker container requires at least 16G memory to run the model
 ***
 
 ![Model Monitoring](PlantUMLDiagrams/Model_Monitoring.png)
@@ -138,12 +152,17 @@ The final stage of the project evaluates model metrics of each predicion by eval
 - Model Drift
 - Model Degradation
 
-These present possible investigation metrics once a certain thershold is reached. 
+These present possible investigation metrics once a certain threshold is reached. 
+The monitoring metrics include:
+- F1 Score
+- ROC-AUC Curve
+- Accuracy
 
 This is hosted on flaksapp app and can be triggered by the following command:
 To run monitoring script:
 
-From the _ModelMonitoring_ directory run the command - ```docker compose up --build```. This will set up the application to run an REST API command that triggers the model monitoring scripts, generating model metrics to the _output_ directory.
+## 1.1 From the _ModelMonitoring_ directory run the command - ```docker compose up --build```. 
+This will set up the application to run an REST API command that triggers the model monitoring scripts, generating model metrics to the _output_ directory.
 
 ```
 curl http://localhost:5001/run-monitoring 
