@@ -1,7 +1,7 @@
 name: Debug GCP Key Secret
 
 on:
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
   debug:
@@ -11,10 +11,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Debug Secret Value
+      - name: Debug Secret Content
         run: |
           echo "${{ secrets.GCP_STORAGE_KEY }}" | head -n 5
           echo "${{ secrets.GCP_STORAGE_KEY }}" > GCP-Key.json
-          echo "Key file created. Previewing content:"
+          echo "Created GCP-Key.json. Previewing content:"
           head -n 5 GCP-Key.json
-        shell: bash
+
+      - name: Verify File Creation
+        run: |
+          echo "Checking current directory:"
+          pwd
+          echo "Listing files in the current directory:"
+          ls -l
+          echo "Checking for GCP-Key.json file:"
+          ls -l GCP-Key.json
