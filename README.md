@@ -48,22 +48,35 @@
 
 GitHub Workflow is used to generate an artifact containing the Google Cloud Storage Key allowing for access to the cloud storage bucket that retrieves the raw data used to populate the _RawData_ database docker instance. Once the key has been made available the script _DownloadDBFile.py_ retrieves the raw data from cloud bucket.
 ## Steps to run _DownloadDBFile.py_
-0.1 - The GitHub Workflow workflow.yml_ creates an the _GCP-Key.json_ artifact
+### 1. Generate the GCP Key Artifact
 
-0.1.1 - Head to "Actions" on GitHub >> select _Setup GCP Key_ >> run the workflow
+1. Go to *Actions* tab in the GitHub repository.
 
-0.1.2 - This creates an GCP-Key.json.zip artifact, download artifact and place in _flaskapp/DataFile_ directory
+2. Select Setup GCP Key workflow.
 
-0.1.3 - Use the command ```unzip GCP-Key.json.zip``` command
+3 Click *Run workflow*.
 
-0.2 - Run the pip command specified in "Requirements"
+After completion, this will produce an artifact named ```GCP-Key.json.zip```.
 
-0.2.1 - Run the _DonwloadDBFile.py_ locally
+### 2. Download and Extract the Key
 
-0.2.2 - This will place the RawData.csv required for the docker database population in the /flaskapp directory
+1. Download the ```GCP-Key.json.zip``` artifact.
 
-## Requirements
+2. Place it in the ```flaskapp/DataFile``` directory.
+
+3. Unzip the file
+```unzip GCP-Key.json.zip```
+
+### 3. Install Dependencies
+
+Make sure you have all required Python packages installed. Run:
 ```pip install google-cloud-storage```
+### 4. Run the Script Locally
+
+Finally, run the script to download the database file:
+```python DownloadDBFile.py``
+
+This will create the RawData.csv file in the _flaskapp_ directory required to populate the docker MySQL instance.
 
 ### directory structure
 ```
