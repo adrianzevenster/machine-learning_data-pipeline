@@ -89,25 +89,45 @@ flaskapp/
 ---
 
 ![Docker Architecture](PlantUMLDiagrams/Docker-Architecture.png)
-# Step 1: Creating Shared Network and Running Flaskapp Docker Multi Container
-Create a shared network using the the following command ```docker create network shared-network```.
+# Step 1: Creating Shared Network and Run the Flaskapp Multi-Container Setup
 
-> NOTE: It might be required to create the docker network manually, this can be done with the following two commands: ```docker network connect shared-network flaskapp-flaskapp-db-1``` and ```docker network connect shared-network flaskapp-flaskapp-app-1``` .
+## 1.1 Create the Shared Docker Network
 
-## 1.1 - From the _/flaskapp_ directory run the command_ ```docker compose up --build```.
+1. *Create the network* (if not already created) by running:
 
-This will run the docker-compose and Dockerfile which creates the instances ```flaskapp-flaskappp-db-1``` and ```flaskapp-flaskapp-app-1```, the _DataBase.py_ populates the mysql instance on the inital run in the ```flaskapp-flaskapp-db-1``` container 
+```docker create network shared-network```
 
-The _RawData_ database now has the table _DP_CDR_Data_.
+2. *(Optional) Manually connect containers* to the network (if needed):
 
-Another docker instance ```flaskapp-flaskappp-app-1``` is created. This instances host the streaming API, which generates simulated CDR records to populate the database. 
-The records are randomly generated based on a sample from the _DP_CDR_Data_ database. 
+```docker network connect shared-network flaskapp-flaskapp-db-1```
 
-## 1.2. Running Streaming Script
-Once the database has been populated an streaming ingestion simulator is spun up, hosted on _flask_, this rest API is responsible for acting as customer relational records once it is triggered. The REST API has 3 paramters: 
+```docker network connect shared-network flaskapp-flaskapp-app-1```
+## 1.2 Build and Run Docker Containers
+
+from the ```/flaskapp``` directory run:
+
+```docker compose up --build```
+
+This command: 
+
+- Spins up two containers:
+    - *flaskapp-flaskapp-db-1* (MySQL instance)
+    - *flaskapp-flaskapp-app-1* (Flask-based application)
+ 
+- Runs the ```DataBase.py``` script on the first run to *populate the MySQL instance* with initial data, creating ```DP_CDR_Data``` table in the ```RawData``` database.
+
+- Launches a *streaming API* in the ```flaskapp-flaskapp-app-1``` container that simulates Call Detail Records (CDR) based on the sample in the ```DP_CDR_Data``` table
+
+  ## 1.3 Run the Streaming Script
+
+  Once the database is populated, a *streaming ingestion simulator* is exposed via a Flask REST API.
+
+  ### API Parameters
  - _num_baches_: Number of iterations.
  - _batch_size_: Records per iteration.
  - interval: Wait time between batches.
+
+### Usage Example
    
 ```
 curl -X POST http://127.0.0.1:5000/start_stream \ 
@@ -116,20 +136,39 @@ curl -X POST http://127.0.0.1:5000/start_stream \
 ```
 ***
 
+This will send 5 batches of 1000 records each, waiting 10 seconds between batches.
+
+> NOTE: Keep this docker instance running, as various docker instances in the pipeline are connected to *flaskapp-flaskapp-db-1*
+
 ![Exploratory Data Analysis](PlantUMLDiagrams/PySparkEDAScript.png)
 # Step 2: Exploratotry Data Analysis
-In the _/ExploratoryDataAnalysis_ directory the following command can be run: ```docker compose up --build```.
+From the ```/ExploratoryDataAnalysis direcory, you can build and run the Docker container that executes the exploratory data analysis script.
 
-This container instance runs the _EDA.py_ script that is responsible for graphing the correlation between features, after the script has been exectud results are stored in the _/output_ directory. These correlations informes the feature generation for the machine learning model to be executed.
+```docker compose up --build```
 
-## 2.1 To run the script, first specify the data parameters in ```query_params.json```, this retrieves the selected dates from DP_CDR_Data.
+This command:
+- SPin up a container that runs the *EDA.py* and *main.py* scripts.
+- Generates correlation plots and analysis results in the ```/output``` directory (as defined by Docker Volumes)
+
+## 2.1 Configure and Run the Analysis
+
+1. *Specify the date parameters* in ```query_params.json```
+
 ```
 {
   "start_date": "<date_value>",
   "end_date": "<date_value>"
 }
 ```
-The resulting graphs of the correlation plots are stored in the _/output_ directory, specified in the docker volumes.
+These dates determine which records are selected from the ```DP_CDR_Data``` table.
+
+2. *Run the EDA script* by executing:
+
+```docker compose up --build```
+
+This script will generate *correlation plots* and other analysis outputs, which are stored in the ```/output``` directory.
+
+These correlations inform the feature generation for the subsequent machine learning tasks.
 ***
 
 ![Data Preparation](PlantUMLDiagrams/PySparkAnalysis.png)
