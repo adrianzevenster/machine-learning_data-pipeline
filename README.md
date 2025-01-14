@@ -50,11 +50,11 @@ GitHub Workflow is used to generate an artifact containing the Google Cloud Stor
 ## Steps to run _DownloadDBFile.py_
 ### 1. Generate the GCP Key Artifact
 
-1. Go to *Actions* tab in the GitHub repository.
+1. Go to **Actions** tab in the GitHub repository.
 
 2. Select Setup GCP Key workflow.
 
-3 Click *Run workflow*.
+3 Click **Run workflow**.
 
 After completion, this will produce an artifact named ```GCP-Key.json.zip```.
 
@@ -93,11 +93,11 @@ flaskapp/
 
 ## 1.1 Create the Shared Docker Network
 
-1. *Create the network* (if not already created) by running:
+1. **Create the network** (if not already created) by running:
 
 ```docker create network shared-network```
 
-2. *(Optional) Manually connect containers* to the network (if needed):
+2. **(Optional) Manually connect containers** to the network (if needed):
 
 ```docker network connect shared-network flaskapp-flaskapp-db-1```
 
@@ -106,26 +106,28 @@ flaskapp/
 
 from the ```/flaskapp``` directory run:
 
-```docker compose up --build```
+```
+docker compose up --build
+```
 
 This command: 
 
 - Spins up two containers:
-    - *flaskapp-flaskapp-db-1* (MySQL instance)
-    - *flaskapp-flaskapp-app-1* (Flask-based application)
+    - **flaskapp-flaskapp-db-1** (MySQL instance)
+    - **flaskapp-flaskapp-app-1** (Flask-based application)
  
 - Runs the ```DataBase.py``` script on the first run to *populate the MySQL instance* with initial data, creating ```DP_CDR_Data``` table in the ```RawData``` database.
 
-- Launches a *streaming API* in the ```flaskapp-flaskapp-app-1``` container that simulates Call Detail Records (CDR) based on the sample in the ```DP_CDR_Data``` table
+- Launches a **streaming API** in the ```flaskapp-flaskapp-app-1``` container that simulates Call Detail Records (CDR) based on the sample in the ```DP_CDR_Data``` table
 
   ## 1.3 Run the Streaming Script
 
-  Once the database is populated, a *streaming ingestion simulator* is exposed via a Flask REST API.
+  Once the database is populated, a **streaming ingestion simulator** is exposed via a Flask REST API.
 
   ### API Parameters
  - _num_baches_: Number of iterations.
  - _batch_size_: Records per iteration.
- - interval: Wait time between batches.
+ - _interval_: Wait time between batches.
 
 ### Usage Example
    
@@ -138,16 +140,18 @@ curl -X POST http://127.0.0.1:5000/start_stream \
 
 This will send 5 batches of 1000 records each, waiting 10 seconds between batches.
 
-> NOTE: Keep this docker instance running, as various docker instances in the pipeline are connected to *flaskapp-flaskapp-db-1*
+> **NOTE**: Keep this docker instance running, as various docker instances in the pipeline are connected to *flaskapp-flaskapp-db-1*
 
 ![Exploratory Data Analysis](PlantUMLDiagrams/PySparkEDAScript.png)
 # Step 2: Exploratotry Data Analysis
-From the ```/ExploratoryDataAnalysis direcory, you can build and run the Docker container that executes the exploratory data analysis script.
+From the ```/ExploratoryDataAnalysis``` direcory, you can build and run the Docker container that executes the exploratory data analysis script.
 
-```docker compose up --build```
+```
+docker compose up --build
+```
 
 This command:
-- SPin up a container that runs the *EDA.py* and *main.py* scripts.
+- Spin up a container that runs the *EDA.py* and *main.py* scripts.
 - Generates correlation plots and analysis results in the ```/output``` directory (as defined by Docker Volumes)
 
 ## 2.1 Configure and Run the Analysis
@@ -162,11 +166,13 @@ This command:
 ```
 These dates determine which records are selected from the ```DP_CDR_Data``` table.
 
-2. *Run the EDA script* by executing:
+2. **Run the EDA script** by executing:
 
-```docker compose up --build```
+```
+docker compose up --build
+```
 
-This script will generate *correlation plots* and other analysis outputs, which are stored in the ```/output``` directory.
+This script will generate **correlation plots** and other analysis outputs, which are stored in the ```/output``` directory.
 
 These correlations inform the feature generation for the subsequent machine learning tasks.
 ***
@@ -175,17 +181,31 @@ These correlations inform the feature generation for the subsequent machine lear
 
 ![Machine Learning Model](PlantUMLDiagrams/pySparkModel.png)
 # Step 3: Data Preparation and Machine Learning Model
-A PySpark job retrieves data from the MySQL docker instance, performs data cleansing and transformation the data. The results are stored into the _RawData_ database under _Processed_Data_, and a parquet file is generated from same stored data for data validation or potentially further data exploration.
+A PySpark workflow is used to:
 
-Hereon another PySpark job trains a Random Forest Classifier to predict customer churn. Data is split into training and testing sets and vectorization transformations are performed. The model then used the lables to create a probability predicions on likelihood to churn. Result are stored under _Model_Predictions_ in the _RawData_ database.
+1. **Retrieve and transform** data from the MySQL Docker instance.
 
-## 3.1 To run the multi container run the command: ```docker compose up --build``` from the _pyspark_ directory. 
+2. **Store** cleaned data and generate a Parquet file for validation or additional exploration.
 
-This will intantiate ```pyspark-pyspark-analysis-1```, responsible for transforming and cleaning the data to be used as the model input. 
+3. **Train** a Random Forest Classifier to predict customer churn, storing the results in the ```RawData``` database
 
-With the ```pyspark-pyspark-model-1``` instance runs the model and generates predictions for customer churn. ```pyspark-pyspark-model-1``` only runs after the analysis script has sucessfully exectud.
+## 3.1 Run the Multi-Container Setup
 
-## 3.2 - Be sure to specify date ranges to be retrieved from the database in the ```json.config``` file. This file used the takes data parameters to be used as input to both data transformations and model creation.
+From the ```/pyspark``` directory, run:
+
+```
+docker compose up --build
+```
+
+This command will:
+- Launch the ```pyspark-pyspark-analysis-1``` container to **transform and clean** the data for modeling.
+- **Automatically** run the ```pyspark-pyspark-model-1``` container **after** the analysis script completes, training a Random Forest Classifier to generate churn predictions.
+- Store model predicions in the ```RawData``` database under ```model_predictions```
+
+> **Note**: Your Docker environment should have at least 16GB of memory to run the model.
+
+## 3.2 Configure Date Ranges
+Edit the ```config.json``` file to specify date ranges for both data transformation and model creation:
 
 ```
 {
@@ -197,30 +217,37 @@ With the ```pyspark-pyspark-model-1``` instance runs the model and generates pre
 }
 
 ```
-> Note: Docker container requires at least 16G memory to run the model
+
+These data values control which records are selected from the database and how they are processed prior to modelling
 ***
 
 ![Model Monitoring](PlantUMLDiagrams/Model_Monitoring.png)
 # Step 4: Model Performance Monitoring
 
-The final stage of the project evaluates model metrics of each predicion by evaluation precision, recall and the F1 score. Deviation accross model runs are captured, any deviations could be indicative of:
+In this stage, model metrics are evaluated to measure F1-score, Accuracy, and ROC-AUC indicators. Tracking deviations in these metrics helps to identify potential:
 - Data Drift
 - Model Drift
 - Model Degradation
 
-These present possible investigation metrics once a certain threshold is reached. 
-The monitoring metrics include:
-- F1 Score
-- ROC-AUC Curve
-- Accuracy
+Key metrics monitored include:
+- **F1 Score**
+- **ROC-AUC Curve**
+- **Accuracy**
 
-This is hosted on flaksapp app and can be triggered by the following command:
-To run monitoring script:
-
-## 1.1 From the _ModelMonitoring_ directory run the command - ```docker compose up --build```. 
-This will set up the application to run an REST API command that triggers the model monitoring scripts, generating model metrics to the _output_ directory.
+## Run Monitoring Service
+From the ```/ModelMonitoring``` directory, build and launch the service:
 
 ```
-curl http://localhost:5001/run-monitoring 
+docker compose up --build
 ```
-However, a polling script is used to check for new inserts into the _Model_Predictions_ table, should there be any new inserts the script will execute automatically.
+
+This command start an application that hosts a REST API for triggering the model monitoring scripts. The generated model metrics are stored in the ```output``` directory.
+
+### Triggering the Monitoring Script
+You can **manually** trigger the monitoring script by calling:
+
+```
+curl http://localhost:5001/run-monitoring
+```
+
+However, a **polling script** is also available to automatically check for new entries in the ```model_predictions``` table. When new predictions are detected, the script runs automatically to update the monitoring metrics. 
