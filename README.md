@@ -142,13 +142,13 @@ This will send 5 batches of 1000 records each, waiting 10 seconds between batche
 
 > **NOTE**: Keep this docker instance running, as various docker instances in the pipeline are connected to **flaskapp-flaskapp-db-1**
 
-** 1.4 MySQL Procedure in Docker Container**
+## 1.4 MySQL Procedure in Docker Container
 
 A MySQL **procedure** is part of the Docker volumes when **flaskapp-flaskapp-db-1** is created. This procedure summarizes the data from ```DP_CDR_Data```
 
 This can be run once the **streaming ingestion** has completed to get a summarized view of the data inserted. 
 
-*** Running MySQL Procedure. *** 
+**Running MySQL Procedure.**:
 
 1. **Access the MySQL container**:
 ```bash
@@ -159,7 +159,7 @@ Enter the password whe prompted.
 
 2. **Execute the procedure** once inside the MySQL shell:
 
-```
+```sql
 USE RawData;
 CALL GetDailyCDRDataBatch(CURDATE() - INTERVAL <day_value> DAY);
 ```
@@ -170,7 +170,7 @@ CALL GetDailyCDRDataBatch(CURDATE() - INTERVAL <day_value> DAY);
 # Step 2: Exploratotry Data Analysis
 From the ```/ExploratoryDataAnalysis``` direcory, you can build and run the Docker container that executes the exploratory data analysis script.
 
-```
+```bash
 docker compose up --build
 ```
 
@@ -182,7 +182,7 @@ This command:
 
 1. *Specify the date parameters* in ```query_params.json```
 
-```
+```json
 {
   "start_date": "<date_value>",
   "end_date": "<date_value>"
@@ -192,7 +192,7 @@ These dates determine which records are selected from the ```DP_CDR_Data``` tabl
 
 2. **Run the EDA script** by executing:
 
-```
+```bash
 docker compose up --build
 ```
 
@@ -217,7 +217,7 @@ A PySpark workflow is used to:
 
 From the ```/pyspark``` directory, run:
 
-```
+```bash
 docker compose up --build
 ```
 
@@ -231,7 +231,7 @@ This command will:
 ## 3.2 Configure Date Ranges
 Edit the ```config.json``` file to specify date ranges for both data transformation and model creation:
 
-```
+```json
 {
   "start_date": "<date_value>", # PySparkAnalysis Parameters
   "end_date": "<date_value>"
@@ -261,7 +261,7 @@ Key metrics monitored include:
 ## Run Monitoring Service
 From the ```/ModelMonitoring``` directory, build and launch the service:
 
-```
+```bash
 docker compose up --build
 ```
 
