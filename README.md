@@ -140,7 +140,31 @@ curl -X POST http://127.0.0.1:5000/start_stream \
 
 This will send 5 batches of 1000 records each, waiting 10 seconds between batches.
 
-> **NOTE**: Keep this docker instance running, as various docker instances in the pipeline are connected to *flaskapp-flaskapp-db-1*
+> **NOTE**: Keep this docker instance running, as various docker instances in the pipeline are connected to **flaskapp-flaskapp-db-1**
+
+** 1.4 MySQL Procedure in Docker Container**
+
+A MySQL **procedure** is part of the Docker volumes when **flaskapp-flaskapp-db-1** is created. This procedure summarizes the data from ```DP_CDR_Data```
+
+This can be run once the **streaming ingestion** has completed to get a summarized view of the data inserted. 
+
+*** Running MySQL Procedure. *** 
+
+1. **Access the MySQL container**:
+```bash
+docker exec -it flaskapp-flaskapp-db-1 mysql -u root -p
+```
+
+Enter the password whe prompted.
+
+2. **Execute the procedure** once inside the MySQL shell:
+
+```
+USE RawData;
+CALL GetDailyCDRDataBatch(CURDATE() - INTERVAL <day_value> DAY);
+```
+
+- This command aggregate summary data of user records.
 
 ![Exploratory Data Analysis](PlantUMLDiagrams/PySparkEDAScript.png)
 # Step 2: Exploratotry Data Analysis
