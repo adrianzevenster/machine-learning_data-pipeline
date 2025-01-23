@@ -1,4 +1,4 @@
-<h1 align="center">Streaming ML Modle Prediction Streaming ingestion Pipeline for Model Prediction and Monitoring</h1>
+<h1 align="center">Simulated Streaming Pipeline for Model Prediction and Monitoring</h1>
 <h3 align="center">This project looks at a simulated streaming ingestion pipeline, transforms raw data to be fed into a machine learning model to make predictions on customer churn and monitorins performance of models using NannyML</h3>
 
 <h3 align="left">Connect with me:</h3>
