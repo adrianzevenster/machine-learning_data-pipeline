@@ -95,7 +95,7 @@ flaskapp/
 
 1. **Create the network** (if not already created) by running:
 
-```docker create network shared-network```
+```docker network create shared-network```
 
 2. **(Optional) Manually connect containers** to the network (if needed):
 
@@ -120,11 +120,11 @@ This command:
 
 - Launches a **streaming API** in the ```flaskapp-flaskapp-app-1``` container that simulates Call Detail Records (CDR) based on the sample in the ```DP_CDR_Data``` table
 
-  ## 1.3 Run the Streaming Script
+## 1.3 Run the Streaming Script
 
-  Once the database is populated, a **streaming ingestion simulator** is exposed via a Flask REST API.
+Once the database is populated, a **streaming ingestion simulator** is exposed via a Flask REST API.
 
-  ### API Parameters
+### API Parameters
  - _num_baches_: Number of iterations.
  - _batch_size_: Records per iteration.
  - _interval_: Wait time between batches.
