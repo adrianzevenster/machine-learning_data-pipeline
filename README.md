@@ -243,6 +243,8 @@ Edit the ```config.json``` file to specify date ranges for both data transformat
 ```
 
 These data values control which records are selected from the database and how they are processed prior to modelling
+
+> NOTE: Windows users will need to convert the **entrypoint.sh** script using: ```dos2unix entrypoint.sh```
 ***
 
 ![Model Monitoring](PlantUMLDiagrams/Model_Monitoring.png)
