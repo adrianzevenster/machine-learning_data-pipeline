@@ -1,0 +1,28 @@
+version: '3'
+services:
+
+  pyspark-analysis:
+    build: .
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./config.json:/app/config.json:ro
+    command: python /app/PySparkAnalysis.py
+    networks:
+      - shared-network
+
+  pyspark-model:
+    build: .
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./config.json:/app/config.json:ro
+    entrypoint: /app/entrypoint.sh  # Run the entrypoint script only here
+    depends_on:
+      - pyspark-analysis
+    networks:
+      - shared-network
+
+networks:
+  shared-network:
+    external: true
