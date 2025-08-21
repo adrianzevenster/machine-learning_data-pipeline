@@ -1,0 +1,226 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Airflow + MySQL + Flask + optional EDA container
+# ─────────────────────────────────────────────────────────────────────────────
+#  Save as: docker-compose.yml
+#  Start stack:   docker compose up -d
+#  Tear down:     docker compose down -v
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # --------------------------------------------------------------------------
+  # Postgres – Airflow metadata DB
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [airflow-network]
+
+  # --------------------------------------------------------------------------
+  # Redis – Celery broker
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:6
+    container_name: airflow-redis
+    networks: [airflow-network]
+
+  # --------------------------------------------------------------------------
+  # MySQL – pipeline data store
+  # --------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: local-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "a?xBVq1!"
+      MYSQL_DATABASE: RawData
+    volumes:
+      - mydb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p'a?xBVq1!'"]
+      interval: 30s
+      retries: 5
+    networks: [airflow-network]
+    # Uncomment if you need host access
+    # ports:
+    #   - "3307:3306"    # host 3307 → container 3306
+
+  # --------------------------------------------------------------------------
+  # One‑shot Airflow DB bootstrap
+  # --------------------------------------------------------------------------
+  airflow-init:
+    image: custom-airflow:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW_UID: "50000"
+    command:
+      - "bash"
+      - "-c"
+      - |
+        set -e
+        exec airflow db upgrade && \
+        airflow users create \
+          --username airflow --password airflow \
+          --firstname Airflow --lastname Admin \
+          --role Admin --email admin@example.com
+    networks: [ airflow-network ]
+
+
+  # --------------------------------------------------------------------------
+  # Airflow Webserver
+  # --------------------------------------------------------------------------
+  airflow-webserver:
+    build: .
+    image: custom-airflow:latest
+    container_name: airflow-webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+    environment:
+      AIRFLOW_CONN_FLASK_SERVICE: "http://flaskapp:5000"
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW_UID: "50000"
+    command: ["webserver"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./flaskapp:/opt/airflow/flaskapp
+    networks: [airflow-network]
+
+  # --------------------------------------------------------------------------
+  # Airflow Scheduler
+  # --------------------------------------------------------------------------
+  airflow-scheduler:
+    image: custom-airflow:latest
+    container_name: airflow-scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+    environment:
+      AIRFLOW_CONN_FLASK_SERVICE: "http://flaskapp:5000"
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW_UID: "50000"
+    command: ["scheduler"]
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./flaskapp:/opt/airflow/flaskapp
+    networks: [airflow-network]
+
+  # --------------------------------------------------------------------------
+  # Airflow Celery Worker
+  # --------------------------------------------------------------------------
+  airflow-worker:
+    image: custom-airflow:latest
+    user: "50000:999"
+    group_add:
+      - "999"
+    container_name: airflow-worker
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+    environment:
+      AIRFLOW_CONN_FLASK_SERVICE: "http://flaskapp:5000"
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW_UID: "50000"
+    command: ["celery", "worker"]
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./flaskapp:/opt/airflow/flaskapp
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
+    networks: [airflow-network]
+
+  # --------------------------------------------------------------------------
+  # Flask service (long‑running)
+  # --------------------------------------------------------------------------
+  flaskapp:
+    build: ./flaskapp
+    image: flaskapp-flaskapp-app:latest
+    container_name: flaskapp-container
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: "a?xBVq1!"
+      DB_NAME: RawData
+      DATABASE_URL: "mysql+pymysql://root:a?xBVq1!@mysql:3306/RawData"
+    command: >
+      sh -c "python DataBase.py && python streamingestion.py"
+    networks: [airflow-network]
+    # Uncomment if you want to reach it from the host
+    # ports:
+    #   - "5001:5000"
+
+  # --------------------------------------------------------------------------
+  # Optional: EDA container (launched by Airflow DockerOperator)
+  # --------------------------------------------------------------------------
+  python-app:
+    build:
+      context: ./ExploratoryDataAnalysis
+    image: python-app:latest
+    container_name: python-app-container
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_USER: root
+      MYSQL_PASSWORD: "a?xBVq1!"
+      MYSQL_DATABASE: RawData
+    volumes:
+      - ./output:/app/output
+    command: >
+      bash -c "python main.py && python EDA.py"
+    networks: [airflow-network]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Named volumes & network
+# ─────────────────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  mydb_data:
+
+networks:
+  airflow-network:
+    driver: bridge
