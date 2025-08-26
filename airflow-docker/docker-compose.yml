@@ -106,6 +106,8 @@ services:
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
       - ./flaskapp:/opt/airflow/flaskapp
+      - ./pySpark:/opt/airflow/pyspark
+      - ./ExploratoryDataAnalysis:/opt/airflow/eda
     networks: [airflow-network]
 
   # --------------------------------------------------------------------------
@@ -134,6 +136,8 @@ services:
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
       - ./flaskapp:/opt/airflow/flaskapp
+      - ./pySpark:/opt/airflow/pyspark
+      - ./ExploratoryDataAnalysis:/opt/airflow/eda
     networks: [airflow-network]
 
   # --------------------------------------------------------------------------
@@ -167,6 +171,8 @@ services:
       - ./flaskapp:/opt/airflow/flaskapp
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker
+      - ./pySpark:/opt/airflow/pyspark
+      - ./ExploratoryDataAnalysis:/opt/airflow/eda
     networks: [airflow-network]
 
   # --------------------------------------------------------------------------
