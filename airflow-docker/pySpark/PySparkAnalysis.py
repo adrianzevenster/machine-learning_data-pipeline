@@ -62,6 +62,7 @@ class MYSQLDataProcessor:
         print(f"Data written to {output_path} successfully.")
 
 # ── Read DB params from ENV (Airflow passes these) ───────────────────────────
+
 MYSQL_HOST = os.getenv("MYSQL_HOST", "local-mysql")
 MYSQL_USER = os.getenv("MYSQL_USER", "root")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "a?xBVq1!")
