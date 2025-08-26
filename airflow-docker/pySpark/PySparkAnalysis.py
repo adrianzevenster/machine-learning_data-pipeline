@@ -62,9 +62,10 @@ class MYSQLDataProcessor:
         print(f"Data written to {output_path} successfully.")
 
 # ── Read DB params from ENV (Airflow passes these) ───────────────────────────
-MYSQL_HOST = os.getenv("MYSQL_HOST", "mysql")
+
+MYSQL_HOST = os.getenv("MYSQL_HOST", "local-mysql")
 MYSQL_USER = os.getenv("MYSQL_USER", "root")
-MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "a?xBVq1!")
 MYSQL_DB = os.getenv("MYSQL_DATABASE", "RawData")
 
 jdbc_url = f"jdbc:mysql://{MYSQL_HOST}:3306/{MYSQL_DB}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
@@ -89,3 +90,4 @@ processor.save_data(transformed_df, f"{MYSQL_DB}.Processed_Data")
 # Save parquet to mounted folder
 parquet_output_dir = "/app/parquetFiles"
 processor.save_to_parquet(transformed_df, parquet_output_dir)
+

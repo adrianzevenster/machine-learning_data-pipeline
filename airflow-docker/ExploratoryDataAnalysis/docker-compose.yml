@@ -1,0 +1,21 @@
+version: '3'
+services:
+  python-app:
+    build: .
+    volumes:
+      - ./output:/app/output
+    environment:
+      - MYSQL_HOST=flaskapp-flaskapp-db-1
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=a?xBVq1!
+      - MYSQL_DATABASE=RawData
+    networks:
+      - shared-network
+    deploy:
+      resources:
+        limits:
+          memory: 4G  # Allocate 4 GB of memory to this container
+
+networks:
+  shared-network:
+    external: true

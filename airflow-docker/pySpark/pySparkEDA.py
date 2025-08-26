@@ -18,6 +18,7 @@ spark = SparkSession.builder \
         .appName("EDA") \
         .getOrCreate()
 
+
 df_20241010 = spark.read.parquet('parquetFiles/processed_data_2024-10-10_130521.parquet')
 df_20241011 = spark.read.parquet('parquetFiles/processed_data_2024-10-11_122412.parquet')
 df_20241016 = spark.read.parquet('parquetFiles/processed_data_2024-10-16_124447.parquet')
