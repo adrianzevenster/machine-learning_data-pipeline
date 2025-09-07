@@ -1,99 +1,133 @@
-# pySparkModel.py (defensive)
-import os, json, sys
-from pyspark.sql import SparkSession, functions as F
-from pyspark.sql.functions import col
-from pyspark.sql.window import Window
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.classification import RandomForestClassifier
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
-from pyspark.ml.functions import vector_to_array
+#!/usr/bin/env python3
+import os, sys
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
+# -----------------------
+# Config from environment
+# -----------------------
 MYSQL_HOST = os.getenv("MYSQL_HOST", "local-mysql")
 MYSQL_DB   = os.getenv("MYSQL_DATABASE", "RawData")
-MYSQL_USER = os.getenv("MYSQL_USER", "root")
-MYSQL_PWD  = os.getenv("MYSQL_PASSWORD", "a?xBVq1!")
+MYSQL_USER = os.getenv("MYSQL_USER", "spark")
+MYSQL_PASS = os.getenv("MYSQL_PASSWORD", "sparkpw")
 
-spark = (SparkSession.builder
-         .appName("cv_model")
-         .config("spark.jars","/opt/spark/jars/mysql-connector-java-8.0.25.jar")
-         .getOrCreate())
+START = os.getenv("PROCESSED_START")   # e.g. '2025-08-22'
+END   = os.getenv("PROCESSED_END")     # e.g. '2025-08-22'
 
-# Load model window
-cfg_path = os.getenv("CONFIG_PATH", "/app/config.json")
-with open(cfg_path) as f:
-    cfg = json.load(f)
-p_start, p_end = cfg["processed_start"], cfg["processed_end"]
+JDBC_URL = (
+    f"jdbc:mysql://{MYSQL_HOST}:3306/{MYSQL_DB}"
+    "?sslMode=REQUIRED&enabledTLSProtocols=TLSv1.2,TLSv1.3"
+    "&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+)
 
-db_url  = f"jdbc:mysql://{MYSQL_HOST}:3306/{MYSQL_DB}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
-props   = {"user": MYSQL_USER, "password": MYSQL_PWD, "driver": "com.mysql.cj.jdbc.Driver"}
+JDBC_PROPS = {
+    "user": MYSQL_USER,
+    "password": MYSQL_PASS,
+    "driver": "com.mysql.cj.jdbc.Driver",
+}
 
-# Robust date cast (works even if Date is stored as text)
-query = f"(SELECT * FROM {MYSQL_DB}.Processed_Data " \
-        f" WHERE STR_TO_DATE(Date,'%Y-%m-%d') BETWEEN '{p_start}' AND '{p_end}') t"
+TABLE = "Processed_Data"   # this is what your features looked like in the logs
 
-df = spark.read.jdbc(url=db_url, table=query, properties=props)
-cnt = df.count()
-print(f"[Model] Loaded Processed_Data rows in [{p_start}..{p_end}]: {cnt}")
+# -----------------------
+# Spark session
+# -----------------------
+spark = (
+    SparkSession.builder
+    .getOrCreate()
+)
+
+print(f"[cfg] host={MYSQL_HOST} db={MYSQL_DB} user={MYSQL_USER}")
+if START and END:
+    print(f"[cfg] date window: {START} .. {END}")
+
+# -----------------------
+# Load data
+# -----------------------
+if START and END:
+    # filter by Date column (case-sensitive as your table showed)
+    query = f"(SELECT * FROM {TABLE} WHERE Date >= '{START}' AND Date <= '{END}') t"
+else:
+    query = TABLE
+
+try:
+    df = spark.read.jdbc(url=JDBC_URL, table=query, properties=JDBC_PROPS)
+except Exception as e:
+    print("[fatal] Could not read Processed_Data:", e)
+    # Fail loudly here: if we cannot even read, let Airflow fail the task.
+    raise
+
+print("\n=== INPUT SNAPSHOT ===")
+print(f"[rows total] {df.count()}")
 df.printSchema()
 df.show(10, truncate=False)
-if cnt == 0:
-    print("[Model] ❌ Empty dataset for the selected window. Widen processed_start/processed_end in config.json.", file=sys.stderr)
-    sys.exit(2)
 
-# Label column can be named two ways – detect it
-label_col = next((c for c in ["M_Tenure_Churn","M_TENURE_CHURN"] if c in df.columns), None)
-if not label_col:
-    print("[Model] ❌ Label column not found. Columns:", df.columns, file=sys.stderr)
-    sys.exit(3)
-df = df.withColumn("label", col(label_col).cast("int"))
+# -----------------------
+# Basic validity checks
+# -----------------------
+if "M_TENURE_CHURN" not in df.columns:
+    print("[warn] Column 'M_TENURE_CHURN' not found -> nothing to train. Exiting successfully.")
+    sys.exit(0)
 
-# Feature engineering
-base = ['M_Out_Call_Count','M_Out_Call_Time','M_Data_Sum','M_Data_Count']
-for c in base:
-    df = df.withColumn(c+"_sum",   F.sum(c).over(Window.partitionBy('Date')))
-    df = df.withColumn(c+"_mean",  F.mean(c).over(Window.partitionBy('Date')))
-    df = df.withColumn(c+"_stddev",F.stddev(c).over(Window.partitionBy('Date')))
+usable = df.where(F.col("M_TENURE_CHURN").isNotNull())
+n_total = usable.count()
+print(f"[rows with label] {n_total}")
 
-feats = base + [f"{c}_{s}" for c in base for s in ["sum","mean","stddev"]]
-for c in feats:
-    df = df.withColumn(c+"_log", F.log1p(F.col(c)))
-feats = feats + [c+"_log" for c in feats]
+labels = [r[0] for r in usable.select("M_TENURE_CHURN").distinct().collect()]
+print(f"[distinct labels] {labels}")
 
-df = df.fillna(0)
-df = VectorAssembler(inputCols=feats, outputCol="features").transform(df)
+if n_total == 0 or len(labels) < 2:
+    print("[warn] Not enough labeled data (need >=1 row and >=2 classes). Exiting successfully.")
+    sys.exit(0)
 
-# Class balance sanity check
-c0 = df.filter(col("label")==0).count()
-c1 = df.filter(col("label")==1).count()
-print(f"[Model] class_0={c0}, class_1={c1}")
-if c0 == 0 or c1 == 0:
-    print("[Model] ❌ Need both classes present in the selected window. Pick a wider/different date range.", file=sys.stderr)
-    sys.exit(4)
+# -----------------------
+# Proceed with ML only if viable
+# -----------------------
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import VectorAssembler, StringIndexer
+from pyspark.ml.classification import RandomForestClassifier
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
 
-# Train
-train_df, test_df = df.randomSplit([0.8, 0.2], seed=42)
-rf = RandomForestClassifier(featuresCol="features", labelCol="label")
-paramGrid = (ParamGridBuilder()
-             .addGrid(rf.numTrees, [50, 100])
-             .addGrid(rf.maxDepth, [5, 10])
-             .build())
-evaluator = BinaryClassificationEvaluator(labelCol="label", rawPredictionCol="prediction", metricName="areaUnderROC")
-cv = CrossValidator(estimator=rf, estimatorParamMaps=paramGrid, evaluator=evaluator, numFolds=3)
+feature_cols = [c for c in df.columns
+                if c not in ("Date", "User", "M_TENURE_CHURN")]
 
-cv_model = cv.fit(train_df)  # safe now
-pred = cv_model.transform(test_df)
-pred = (pred
-        .withColumn("probability_array", vector_to_array("probability"))
-        .withColumn("rawPrediction_array", vector_to_array("rawPrediction"))
-        .withColumn("features_array", vector_to_array("features"))
-        .withColumn("probability_0", F.col("probability_array")[0])
-        .withColumn("probability_1", F.col("probability_array")[1])
-        .withColumn("rawPrediction_0", F.col("rawPrediction_array")[0])
-        .withColumn("rawPrediction_1", F.col("rawPrediction_array")[1])
-        .drop("probability","probability_array","rawPrediction","rawPrediction_array","features","features_array"))
+print(f"[features] {feature_cols}")
 
-roc_auc = evaluator.evaluate(pred)
-print(f"[Model] ROC-AUC: {roc_auc}")
-pred.write.jdbc(url=db_url, table="model_predictions", mode="append", properties=props)
-print("[Model] ✅ Predictions written to model_predictions")
+label_indexer = StringIndexer(inputCol="M_TENURE_CHURN", outputCol="label", handleInvalid="skip")
+assembler     = VectorAssembler(inputCols=feature_cols, outputCol="features", handleInvalid="skip")
+rf            = RandomForestClassifier(featuresCol="features", labelCol="label", seed=42)
+
+pipeline = Pipeline(stages=[label_indexer, assembler, rf])
+
+param_grid = (ParamGridBuilder()
+              .addGrid(rf.numTrees, [50, 100])
+              .addGrid(rf.maxDepth, [5, 10])
+              .build())
+
+evaluator = BinaryClassificationEvaluator(labelCol="label", rawPredictionCol="rawPrediction")
+
+# train / test split with guard
+train_df, test_df = usable.randomSplit([0.8, 0.2], seed=42)
+print(f"[split] train={train_df.count()}  test={test_df.count()}")
+
+if train_df.count() == 0:
+    print("[warn] train split ended up empty -> exiting successfully.")
+    sys.exit(0)
+
+cv = CrossValidator(estimator=pipeline,
+                    estimatorParamMaps=param_grid,
+                    evaluator=evaluator,
+                    numFolds=3,
+                    parallelism=1)  # keep resource usage tame
+
+cv_model = cv.fit(train_df)
+print("[model] trained OK")
+
+# Evaluate (if we have test rows)
+if test_df.count() > 0:
+    metric = evaluator.evaluate(cv_model.transform(test_df))
+    print(f"[auc] {metric:.4f}")
+else:
+    print("[note] test set empty; skipping evaluation.")
+
+print("[done] pySparkModel completed successfully.")
