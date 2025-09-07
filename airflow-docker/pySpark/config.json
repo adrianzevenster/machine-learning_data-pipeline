@@ -11,9 +11,13 @@
     "processed": "Processed_Data"
   },
   "dates": {
-    "start": "2024-10-01",
-    "end":   "2025-12-31"
-  },
+    "start": "2025-08-22",
+    "end": "2025-08-22",
+    "processed_start": "2025-08-22",
+    "processed_end": "2025-08-24"
+  }
+
+,
   "io": {
     "parquet_dir": "/app/parquetFiles"
   }

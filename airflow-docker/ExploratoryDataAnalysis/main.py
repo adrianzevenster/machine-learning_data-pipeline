@@ -9,7 +9,7 @@ import pandas as pd
 
 def execute_sql_query(query, database_name):
     db_config = {
-        "host": os.getenv("MYSQL_HOST", "local-mysql"),   # ← read from env
+        "host": os.getenv("MYSQL_HOST", "mysql"),   # ← read from env
         "user": os.getenv("MYSQL_USER", "root"),
         "password": os.getenv("MYSQL_PASSWORD", "a?xBVq1!"),
         "database": database_name,
