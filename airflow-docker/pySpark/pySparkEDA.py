@@ -15,8 +15,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 spark = SparkSession.builder \
-    .appName("EDA") \
-    .getOrCreate()
+        .appName("EDA") \
+        .getOrCreate()
+
 
 df_20241010 = spark.read.parquet('parquetFiles/processed_data_2024-10-10_130521.parquet')
 df_20241011 = spark.read.parquet('parquetFiles/processed_data_2024-10-11_122412.parquet')
