@@ -1,6 +1,6 @@
 # /opt/airflow/dags/docker_container_orchestration.py
 """
-Airflow DAG: local_dev_pipeline  – PySpark + EDA, no host mkdirs on import.
+Airflow DAG: local_dev_pipeline  – PySpark + EDA.
 
 What it does
 ------------
@@ -31,9 +31,6 @@ from airflow.providers.http.operators.http import SimpleHttpOperator
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Defaults & constants
-# ──────────────────────────────────────────────────────────────────────────────
 DEFAULT_ARGS = {
     "owner": "airflow",
     "depends_on_past": False,
@@ -48,15 +45,12 @@ MYSQL_USER = "root"
 MYSQL_PWD  = "a?xBVq1!"
 MYSQL_DB   = "RawData"
 
-# Airflow stack network (where web/scheduler/worker run)
 DOCKER_NETWORK = os.getenv("AIRFLOW_DOCKER_NETWORK", "airflow-network")
 
-# Optional host paths from Airflow Variables (no mkdir here!)
 DATA_PIPELINE_ROOT = Variable.get("DATA_PIPELINE_ROOT", default_var=None)
 SPARK_PROJECT_ROOT = Variable.get("SPARK_PROJECT_ROOT", default_var=None)
 PARQUET_OUT_HOST   = Variable.get("PARQUET_OUT_HOST", default_var=None)
 
-# Build optional mounts based on existing paths only
 EDA_MOUNTS = []
 if DATA_PIPELINE_ROOT:
     eda_out = Path(DATA_PIPELINE_ROOT) / "ExploratoryDataAnalysis" / "output"
@@ -67,9 +61,6 @@ PYSPARK_ANALYSIS_MOUNTS = []
 if PARQUET_OUT_HOST and Path(PARQUET_OUT_HOST).exists():
     PYSPARK_ANALYSIS_MOUNTS = [Mount(source=str(PARQUET_OUT_HOST), target="/out", type="bind")]
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────────────────
 def _wait_for_mysql() -> bool:
     try:
         with socket.create_connection((MYSQL_HOST, MYSQL_PORT), timeout=2):
@@ -77,9 +68,6 @@ def _wait_for_mysql() -> bool:
     except OSError:
         return False
 
-# ──────────────────────────────────────────────────────────────────────────────
-# DAG
-# ──────────────────────────────────────────────────────────────────────────────
 with DAG(
         dag_id="local_dev_pipeline",
         description="Orchestrate MySQL → Flask → EDA → PySpark",
@@ -180,10 +168,12 @@ with DAG(
             "MYSQL_USER": "spark",
             "MYSQL_PASSWORD": "sparkpw",
             "PYSPARK_PYTHON": "python3",
+            "SPARK_DRIVER_MEMORY": "4g",
         },
-        network_mode=DOCKER_NETWORK,
+        network_mode="airflow-docker_airflow-network",
         docker_url="unix://var/run/docker.sock",
         mount_tmp_dir=False,
+        mem_limit="4g",
     )
 
 
