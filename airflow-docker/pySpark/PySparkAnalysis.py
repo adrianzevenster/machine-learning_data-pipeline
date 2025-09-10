@@ -19,7 +19,12 @@ URL = (
     "?sslMode=REQUIRED&enabledTLSProtocols=TLSv1.2,TLSv1.3"
     "&allowPublicKeyRetrieval=true&serverTimezone=UTC&rewriteBatchedStatements=true"
 )
-JDBC_PROPS = {"user": MYSQL_USER, "password": MYSQL_PW, "driver": "com.mysql.cj.jdbc.Driver"}
+JDBC_PROPS = {"user": MYSQL_USER,
+              "password": MYSQL_PW,
+              "driver": "com.mysql.cj.jdbc.Driver",
+              "useServerPrepStmts": "true",
+              "useCursorFetch": "1000",
+              }
 
 # Keep it one JVM/thread to avoid classpath quirks and to use one JDBC connection for writes
 spark = (

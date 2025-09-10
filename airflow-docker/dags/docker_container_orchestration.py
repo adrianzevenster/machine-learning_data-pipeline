@@ -156,6 +156,9 @@ with DAG(
             "MYSQL_USER": "spark",
             "MYSQL_PASSWORD": "sparkpw",
             "PYSPARK_PYTHON": "python3",
+            "SPARK_DRIVER_MEMORY": "4g",
+            "SPARK_EXECUTOR_MEMORY": "4g",
+            "PYSPARK_SUBMIT_ARGS": "--conf spark.sql.shuffle.partitions=8 pyspark-shell",
         },
         mount_tmp_dir=False,  # avoid the tmp bind mount error
         tty=False,
