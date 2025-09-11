@@ -3,36 +3,48 @@ import os, sys
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from datetime import datetime, timedelta
-import socket
+import socket, time
 
-RAW_HOST = os.getenv("MYSQL_HOST", "local-mysql")
-if RAW_HOST.strip().lower() == "mysql":
-    # On the Airflow network the MySQL service is "local-mysql"
-    print("[warn] MYSQL_HOST was 'mysql'; overriding to 'local-mysql'")
-    RAW_HOST = "local-mysql"
 
-# DNS sanity check (helpful log + fast fail)
-try:
-    ip = socket.gethostbyname(RAW_HOST)
-    print(f"[dns] resolved {RAW_HOST} -> {ip}")
-except Exception as e:
-    print(f"[fatal] DNS could not resolve '{RAW_HOST}': {e}")
-    raise
-
-MYSQL_HOST = RAW_HOST
 MYSQL_DB   = os.getenv("MYSQL_DATABASE", "RawData")
 MYSQL_USER = os.getenv("MYSQL_USER", "spark")
 MYSQL_PASS = os.getenv("MYSQL_PASSWORD", "sparkpw")
 
+def wait_for_host(host, port=3306, attempts=20, delay=3):
+    for i in range(1, attempts + 1):
+        try:
+            # DNS first (will raise on unknown host)
+            ip = socket.gethostbyname(host)
+            # then TCP connect
+            with socket.create_connection((host, port), timeout=3):
+                print(f"[mysql ready] {host} ({ip}):{port}")
+                return True
+        except Exception as e:
+            print(f"[mysql wait {i}/{attempts}] {host}:{port} not ready: {e}")
+            time.sleep(delay)
+    return False
+
+# normalize host if something odd slips in
+MYSQL_HOST = os.getenv("MYSQL_HOST", "local-mysql")  # keep your original default
+if MYSQL_HOST in {"mysql", "db", "flaskapp-flaskapp-db-1"}:
+    print(f"[note] Overriding MYSQL_HOST '{MYSQL_HOST}' -> 'local-mysql'")
+    MYSQL_HOST = "local-mysql"
+
+# (re)build JDBC_URL AFTER normalization
+JDBC_URL = (
+    f"jdbc:mysql://{MYSQL_HOST}:3306/{MYSQL_DB}"
+    "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+)
+
+
+print(f"[cfg] host={MYSQL_HOST} db={MYSQL_DB} user={MYSQL_USER}")
+
+# wait for DNS + port before Spark touches JDBC
+if not wait_for_host(MYSQL_HOST, 3306, attempts=20, delay=3):
+    raise SystemExit(f"[fatal] MySQL host '{MYSQL_HOST}' not reachable after retries")
+
 START = os.getenv("PROCESSED_START")   # e.g. '2025-08-22'
 END   = os.getenv("PROCESSED_END")     # e.g. '2025-08-22'
-
-JJDBC_URL = (
-    f"jdbc:mysql://{MYSQL_HOST}:3306/{MYSQL_DB}"
-    "?sslMode=REQUIRED&enabledTLSProtocols=TLSv1.2,TLSv1.3"
-    "&allowPublicKeyRetrieval=true&serverTimezone=UTC"
-    "&connectTimeout=5000&socketTimeout=5000"
-)
 
 
 JDBC_PROPS = {
@@ -51,6 +63,8 @@ spark = (
     .config("spark.sql.shuffle.partitions", "4")
     .config("spark.default.parallelism", "4")
     .config("spark.ui.showConsoleProgress", "false")
+    .config("spark.sql.adaptive.enabled", "true")
+    .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
     .config("spark.driver.memory", "3g")
     .config("spark.executor.memory", "2g")
     .config("spark.executor.instances", "1")
@@ -132,18 +146,23 @@ if predicates:
 else:
     df = load_df_with_query(main_sql)
 
+# AFTER (bounded actions)
 print("\n=== INPUT SNAPSHOT (final) ===")
-print(f"[rows total] {df.count()}")
+non_empty = df.limit(1).count()  # at most 1 row pull
+print(f"[has any rows] {bool(non_empty)}")
 df.show(10, truncate=False)
 
 usable = df.where(F.col(label_col).isNotNull())
-n_total = usable.count()
-print(f"[rows with label] {n_total}")
 
-labels = [r[0] for r in usable.select(label_col).distinct().collect()]
-print(f"[distinct labels] {labels}")
+# Only check “has labels” without scanning the table
+has_labeled = usable.limit(1).count()
+print(f"[has labeled rows] {bool(has_labeled)}")
 
-if n_total == 0 or len(labels) < 2:
+# Distinct label check but cap to 3 unique values
+label_cnt = usable.select(label_col).distinct().limit(3).count()
+print(f"[distinct label count (capped)] {label_cnt}")
+
+if (not has_labeled) or label_cnt < 2:
     print("[warn] Not enough labeled data (need >=1 row and >=2 classes). Exiting successfully.")
     sys.exit(0)
 

@@ -45,7 +45,7 @@ MYSQL_USER = "root"
 MYSQL_PWD  = "a?xBVq1!"
 MYSQL_DB   = "RawData"
 
-DOCKER_NETWORK = os.getenv("AIRFLOW_DOCKER_NETWORK", "airflow-network")
+DOCKER_NETWORK = os.getenv("AIRFLOW_DOCKER_NETWORK", "shared-network")
 
 DATA_PIPELINE_ROOT = Variable.get("DATA_PIPELINE_ROOT", default_var=None)
 SPARK_PROJECT_ROOT = Variable.get("SPARK_PROJECT_ROOT", default_var=None)
@@ -169,8 +169,10 @@ with DAG(
             "MYSQL_PASSWORD": "sparkpw",
             "PYSPARK_PYTHON": "python3",
             "SPARK_DRIVER_MEMORY": "4g",
+            "SPARK_EXECUTOR_MEMORY": "4g",
+            "PYSPARK_SUBMIT_ARGS": "--conf spark.sql.shuffle.partitions=4 pyspark-shell",
         },
-        network_mode="airflow-docker_airflow-network",
+        network_mode=DOCKER_NETWORK,
         docker_url="unix://var/run/docker.sock",
         mount_tmp_dir=False,
         mem_limit="4g",
