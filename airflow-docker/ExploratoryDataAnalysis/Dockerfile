@@ -1,14 +1,24 @@
 FROM python:3.9-slim
 
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
+COPY EDA.py /app/
+
+RUN python -m pip install --upgrade pip && \
+    pip install \
+    pandas \
+    pyarrow \
+    SQLAlchemy\
+    PyMySQL \
+    matplotlib \
+    seaborn \
+    opencv-python-headless \
+    scikit-learn \
+    mysql-connector-python
 
 COPY . /app
-
-RUN apt-get update && \
-    apt-get install -y libgl1 libgl1-mesa-glx && \
-    rm -rf /var/lib/apt/lists/*
-
-
-RUN pip install --no-cache-dir pandas numpy matplotlib seaborn scikit-learn pymysql mysql-connector-python
 
 CMD ["python", "EDA.py"]

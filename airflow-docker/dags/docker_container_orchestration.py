@@ -1,24 +1,28 @@
+# /opt/airflow/dags/docker_container_orchestration.py
 """
-Airflow DAG: local_dev_pipeline  – FULL VERSION (with PySpark tasks)
+Airflow DAG: local_dev_pipeline  – PySpark + EDA.
 
-• Waits for MySQL (local-mysql) to be reachable.
-• POSTs /start_stream to the Flask service.
-• Runs EDA container that binds host output folder.
-• Executes PySparkAnalysis and PySparkModel in sequence.
+What it does
+------------
+1) Waits for MySQL (local-mysql) to be reachable.
+2) Calls Flask /start_stream (via Airflow HTTP conn 'flask_service').
+3) Runs EDA container (optional host output mount if it exists).
+4) Runs PySparkAnalysis.py (entrypoint=/bin/sh; python3).
+5) Runs pySparkModel (uses image's entrypoint).
 
-Prerequisites
--------------
-1. Airflow Connection `flask_service` → HTTP http://flaskapp:5000
-2. Airflow Variables:
-   - `DATA_PIPELINE_ROOT`: absolute host path to project root.
-   - `SPARK_PROJECT_ROOT`: absolute host path to PySpark folder (contains data/, output/, config.json).
+Optional Airflow Variables
+--------------------------
+- DATA_PIPELINE_ROOT   (abs host path to your project root; used for EDA output mount if present)
+- SPARK_PROJECT_ROOT   (abs host path to pySpark folder; NOT required by DAG; PySpark runs from image)
+- PARQUET_OUT_HOST     (abs host path to persist analysis outputs; if missing, no host mount is used)
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
-import socket
 import os
+import socket
 
 from airflow import DAG
 from airflow.models import Variable
@@ -27,7 +31,6 @@ from airflow.providers.http.operators.http import SimpleHttpOperator
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
-# ─── Defaults ─────────────────────────────────────────────────────────────────
 DEFAULT_ARGS = {
     "owner": "airflow",
     "depends_on_past": False,
@@ -36,32 +39,28 @@ DEFAULT_ARGS = {
     "retry_delay": timedelta(minutes=5),
 }
 
-# ─── Constants ────────────────────────────────────────────────────────────────
-MYSQL_HOST = "local-mysql"
+MYSQL_HOST = "mysql"
 MYSQL_PORT = 3306
 MYSQL_USER = "root"
 MYSQL_PWD  = "a?xBVq1!"
 MYSQL_DB   = "RawData"
 
-# Default network for Airflow stack (web/scheduler/worker/EDA)
-DOCKER_NETWORK = os.getenv("AIRFLOW_DOCKER_NETWORK", "airflow-docker_airflow-network")
+DOCKER_NETWORK = os.getenv("AIRFLOW_DOCKER_NETWORK", "shared-network")
 
-# Separate network where `local-mysql` also has alias `flaskapp-db`
-PYSPARK_NETWORK = os.getenv("PYSPARK_NETWORK", "airflow-network")
+DATA_PIPELINE_ROOT = Variable.get("DATA_PIPELINE_ROOT", default_var=None)
+SPARK_PROJECT_ROOT = Variable.get("SPARK_PROJECT_ROOT", default_var=None)
+PARQUET_OUT_HOST   = Variable.get("PARQUET_OUT_HOST", default_var=None)
 
-# Host path for EDA output (mount into EDA container)
-PROJECT_ROOT = Path(Variable.get("DATA_PIPELINE_ROOT"))
-EDA_OUTPUT_HOST = PROJECT_ROOT / "ExploratoryDataAnalysis" / "output"
-if not EDA_OUTPUT_HOST.is_absolute():
-    raise ValueError(f"DATA_PIPELINE_ROOT must be absolute, got: {PROJECT_ROOT}")
+EDA_MOUNTS = []
+if DATA_PIPELINE_ROOT:
+    eda_out = Path(DATA_PIPELINE_ROOT) / "ExploratoryDataAnalysis" / "output"
+    if eda_out.exists():
+        EDA_MOUNTS = [Mount(source=str(eda_out), target="/app/output", type="bind")]
 
-# Host paths for PySpark tasks
-SPARK_ROOT = Path(Variable.get("SPARK_PROJECT_ROOT", str(PROJECT_ROOT / "pySpark")))
-SPARK_DATA_HOST = SPARK_ROOT / "data"
-SPARK_OUTPUT_HOST = SPARK_ROOT / "output"         # mounted at /app/parquetFiles
-SPARK_CONFIG_HOST = SPARK_ROOT / "config.json"
+PYSPARK_ANALYSIS_MOUNTS = []
+if PARQUET_OUT_HOST and Path(PARQUET_OUT_HOST).exists():
+    PYSPARK_ANALYSIS_MOUNTS = [Mount(source=str(PARQUET_OUT_HOST), target="/out", type="bind")]
 
-# ─── MySQL readiness callable ─────────────────────────────────────────────────
 def _wait_for_mysql() -> bool:
     try:
         with socket.create_connection((MYSQL_HOST, MYSQL_PORT), timeout=2):
@@ -69,7 +68,6 @@ def _wait_for_mysql() -> bool:
     except OSError:
         return False
 
-# ─── DAG Definition ───────────────────────────────────────────────────────────
 with DAG(
         dag_id="local_dev_pipeline",
         description="Orchestrate MySQL → Flask → EDA → PySpark",
@@ -96,9 +94,10 @@ with DAG(
         headers={"Content-Type": "application/json"},
         retries=6,
         retry_delay=timedelta(seconds=30),
+        log_response=True,
     )
 
-    # EDA container (python-app:latest) on the Airflow stack network
+    # EDA container (python-app:latest) on Airflow network
     run_eda = DockerOperator(
         task_id="run_eda",
         image="python-app:latest",
@@ -107,13 +106,14 @@ with DAG(
         docker_url="unix:///var/run/docker.sock",
         network_mode=DOCKER_NETWORK,
         mount_tmp_dir=False,
+        do_xcom_push=False,
         environment={
             "MYSQL_HOST": MYSQL_HOST,
             "MYSQL_USER": MYSQL_USER,
             "MYSQL_PASSWORD": MYSQL_PWD,
             "MYSQL_DATABASE": MYSQL_DB,
         },
-        mounts=[Mount(source=str(EDA_OUTPUT_HOST), target="/app/output", type="bind")],
+        mounts=EDA_MOUNTS,
         command="python EDA.py",
     )
 
@@ -125,194 +125,58 @@ with DAG(
         docker_url="unix:///var/run/docker.sock",
         network_mode=DOCKER_NETWORK,
         mount_tmp_dir=False,
+        do_xcom_push=False,
         environment={"MYSQL_HOST": MYSQL_HOST, "MYSQL_PORT": str(MYSQL_PORT)},
-        command="sh -c 'nslookup local-mysql && nc -vz -w 2 local-mysql 3306 || (echo FAIL && exit 1)'",
+        command="sh -lc 'nslookup mysql && nc -vz -w 2 mysql 3306'",
+    )
+
+    # PySparkAnalysis.py — override entrypoint so we can run python3 directly
+    pyspark_analysis = DockerOperator(
+        task_id="pyspark_analysis",
+        image="pyspark-app:latest",
+        entrypoint="/bin/sh",
+        command=["-lc", "python3 /app/PySparkAnalysis.py"],
+        docker_url="unix://var/run/docker.sock",
+        network_mode=DOCKER_NETWORK,
+        environment={
+            "MYSQL_HOST": "mysql",
+            "MYSQL_DATABASE": "RawData",
+            "MYSQL_USER": "spark",
+            "MYSQL_PASSWORD": "sparkpw",
+            "PYSPARK_PYTHON": "python3",
+            "SPARK_DRIVER_MEMORY": "4g",
+            "SPARK_EXECUTOR_MEMORY": "4g",
+            "PYSPARK_SUBMIT_ARGS": "--conf spark.sql.shuffle.partitions=8 pyspark-shell",
+        },
+        mount_tmp_dir=False,  # avoid the tmp bind mount error
+        tty=False,
     )
 
 
-    # --- PySpark Analysis ---
-pyspark_analysis = DockerOperator(
-    task_id="pyspark_analysis",
-    image="pyspark-app:latest",
-    container_name="pyspark-analysis-{{ ts_nodash }}",
-    auto_remove=True,
-    docker_url="unix:///var/run/docker.sock",
-    network_mode=DOCKER_NETWORK,
-    mount_tmp_dir=False,
-    environment={
-        "MYSQL_HOST": MYSQL_HOST,   # "local-mysql"
-        "MYSQL_USER": MYSQL_USER,
-        "MYSQL_PASSWORD": MYSQL_PWD,
-        "MYSQL_DATABASE": MYSQL_DB,
-    },
-    mounts=[
-        Mount(source=str(SPARK_DATA_HOST),   target="/app/data",         type="bind"),
-        Mount(source=str(SPARK_OUTPUT_HOST), target="/app/parquetFiles", type="bind"),
-        Mount(source=str(SPARK_CONFIG_HOST), target="/app/config.json",  type="bind"),
-        Mount(source=str(SPARK_ROOT / "PySparkAnalysis.py"), target="/app/PySparkAnalysis.py", type="bind"),
-        Mount(source=str(SPARK_ROOT / "pySparkModel.py"),    target="/app/pySparkModel.py",    type="bind", read_only=True),
-    ],
-    command=r"""
-sh -euxc '
-# 1) Patch /app/config.json host + JDBC
-python - << "PY"
-import os, json, re, socket, time, sys
-HOST="{}"
-CFG="/app/config.json"
 
-def fix_jdbc(s): return re.sub(r"(?<=jdbc:mysql://)([^:/?#]+)", HOST, s)
-def walk(o):
-    if isinstance(o, dict):
-        for k,v in list(o.items()):
-            if isinstance(v,(dict,list)): walk(v)
-            elif isinstance(v,str):
-                v=v.replace("flaskapp-db", HOST)
-                v=fix_jdbc(v)
-                o[k]=v
-        for k in ("host","hostname","db_host","mysql_host"):
-            if k in o: o[k]=HOST
-        for k in ("url","jdbc_url","jdbcUrl","connection","connection_string"):
-            if k in o and isinstance(o[k],str): o[k]=fix_jdbc(o[k])
-    elif isinstance(o,list):
-        for i,v in enumerate(o):
-            if isinstance(v,(dict,list)): walk(v)
-            elif isinstance(v,str):
-                v=v.replace("flaskapp-db", HOST)
-                v=fix_jdbc(v)
-                o[i]=v
-
-try:
-    with open(CFG) as f: cfg=json.load(f)
-    walk(cfg)
-    with open(CFG,"w") as f: json.dump(cfg,f)
-    print("Patched config.json -> host =", HOST)
-except Exception as e:
-    print("config.json patch skipped:", e)
-
-# quick TCP check
-for i in range(1,6):
-    try:
-        with socket.create_connection((HOST,3306),timeout=2):
-            print("MySQL TCP reachable at", HOST, "on attempt", i); break
-    except Exception as e:
-        print("Wait for MySQL:", e); time.sleep(2)
-else:
-    print("FATAL: cannot reach MySQL at", HOST); sys.exit(2)
-PY
-'""".format(MYSQL_HOST) + r"""
-# 2) Copy /app -> /tmp/app-run and rewrite any leftover flaskapp-db / JDBC hosts
-sh -euxc '
-rm -rf /tmp/app-run && mkdir -p /tmp/app-run
-cp -a /app/. /tmp/app-run/
-
-python - << "PY"
-import os, re, io
-HOST=os.environ.get("MYSQL_HOST","local-mysql")
-root="/tmp/app-run"
-def fix(s):
-    s=s.replace("flaskapp-db", HOST)
-    s=re.sub(r"(?<=jdbc:mysql://)([^:/?#]+)", HOST, s)
-    return s
-exts={".py",".json",".conf",".properties",".ini",".txt",".yml",".yaml",".cfg"}
-for dp,_,fns in os.walk(root):
-    for fn in fns:
-        p=os.path.join(dp,fn)
-        _,ext=os.path.splitext(p)
-        if ext not in exts: continue
-        try:
-            s=open(p,"r",errors="ignore").read()
-        except: 
-            continue
-        ns=fix(s)
-        if ns!=s:
-            with open(p,"w") as w: w.write(ns)
-            print("patched:", p)
-PY
-
-# 3) Sanity: fail fast if anything still mentions flaskapp-db
-if grep -R "flaskapp-db" /tmp/app-run; then
-  echo "FATAL: still found flaskapp-db after patch"; exit 2
-fi
-
-# 4) Run patched script
-python /tmp/app-run/PySparkAnalysis.py
-'
-""",
-)
-
-# --- PySpark Model ---
-pyspark_model = DockerOperator(
-    task_id="pyspark_model",
-    image="pyspark-app:latest",
-    container_name="pyspark-model-{{ ts_nodash }}",
-    auto_remove=True,
-    docker_url="unix:///var/run/docker.sock",
-    network_mode=DOCKER_NETWORK,
-    mount_tmp_dir=False,
-    environment={
-        "MYSQL_HOST": MYSQL_HOST,
-        "MYSQL_USER": MYSQL_USER,
-        "MYSQL_PASSWORD": MYSQL_PWD,
-        "MYSQL_DATABASE": MYSQL_DB,
-    },
-    mounts=[
-        Mount(source=str(SPARK_OUTPUT_HOST), target="/app/parquetFiles", type="bind"),
-        Mount(source=str(SPARK_CONFIG_HOST), target="/app/config.json",  type="bind"),
-        Mount(source=str(SPARK_ROOT / "pySparkModel.py"), target="/app/pySparkModel.py", type="bind"),
-    ],
-    command=r"""
-sh -euxc '
-# patch config
-python - << "PY"
-import os, json, re
-HOST=os.environ.get("MYSQL_HOST","local-mysql")
-CFG="/app/config.json"
-def fix_jdbc(s): return re.sub(r"(?<=jdbc:mysql://)([^:/?#]+)", HOST, s)
-with open(CFG) as f: d=json.load(f)
-def walk(o):
-    if isinstance(o,dict):
-        for k,v in list(o.items()):
-            if isinstance(v,(dict,list)): walk(v)
-            elif isinstance(v,str): o[k]=fix_jdbc(v.replace("flaskapp-db",HOST))
-        for k in ("host","hostname","db_host","mysql_host"):
-            if k in o: o[k]=HOST
-        for k in ("url","jdbc_url","jdbcUrl","connection","connection_string"):
-            if k in o and isinstance(o[k],str): o[k]=fix_jdbc(o[k])
-    elif isinstance(o,list):
-        for i,v in enumerate(o):
-            if isinstance(v,(dict,list)): walk(v)
-            elif isinstance(v,str): o[i]=fix_jdbc(v.replace("flaskapp-db",HOST))
-walk(d)
-with open(CFG,"w") as f: json.dump(d,f)
-print("Patched config.json -> host =", HOST)
-PY
-
-# patch code into temp and run
-rm -rf /tmp/app-run && mkdir -p /tmp/app-run
-cp -a /app/. /tmp/app-run/
-python - << "PY"
-import os, re
-HOST=os.environ.get("MYSQL_HOST","local-mysql")
-for p in ("/tmp/app-run/pySparkModel.py",):
-    try:
-        s=open(p,"r",errors="ignore").read()
-        ns=re.sub(r"(?<=jdbc:mysql://)([^:/?#]+)", HOST, s).replace("flaskapp-db",HOST)
-        if ns!=s:
-            open(p,"w").write(ns); print("patched:", p)
-    except Exception as e:
-        print("skip", p, e)
-PY
-
-if grep -R "flaskapp-db" /tmp/app-run; then
-  echo "FATAL: still found flaskapp-db after patch"; exit 2
-fi
-
-python /tmp/app-run/pySparkModel.py
-'
-""",
-)
+    # PySpark model — let image entrypoint do its thing (as you had)
+    pyspark_model = DockerOperator(
+        task_id="pyspark_model",
+        image="pyspark-app:latest",
+        api_version="auto",
+        auto_remove=True,
+        entrypoint="/bin/sh",
+        command=["-lc", "python3 /app/pySparkModel.py"],
+        environment={
+            "MYSQL_HOST": "mysql",
+            "MYSQL_DATABASE": "RawData",
+            "MYSQL_USER": "spark",
+            "MYSQL_PASSWORD": "sparkpw",
+            "PYSPARK_PYTHON": "python3",
+            "SPARK_DRIVER_MEMORY": "4g",
+            "SPARK_EXECUTOR_MEMORY": "4g",
+            "PYSPARK_SUBMIT_ARGS": "--conf spark.sql.shuffle.partitions=4 pyspark-shell",
+        },
+        network_mode=DOCKER_NETWORK,
+        docker_url="unix://var/run/docker.sock",
+        mount_tmp_dir=False,
+        mem_limit="4g",
+    )
 
 
-
-
-mysql_ready >> start_stream >> run_eda >> pyspark_db_dns_check >> pyspark_analysis >> pyspark_model
+    mysql_ready >> pyspark_db_dns_check >> start_stream >> run_eda >> pyspark_analysis >> pyspark_model
