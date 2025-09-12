@@ -23,7 +23,8 @@ JDBC_PROPS = {"user": MYSQL_USER,
               "password": MYSQL_PW,
               "driver": "com.mysql.cj.jdbc.Driver",
               "useServerPrepStmts": "true",
-              "useCursorFetch": "1000",
+              "useCursorFetch" : "true",
+              "defaultFetchSize": "1000",
               }
 
 # Keep it one JVM/thread to avoid classpath quirks and to use one JDBC connection for writes
@@ -36,13 +37,32 @@ spark = (
     .getOrCreate()
 )
 
+
 print(f"[cfg] host={MYSQL_HOST} db={MYSQL_DB} user={MYSQL_USER}")
-spark.read.jdbc(url=URL, table="(SELECT DATABASE() db, @@hostname host) t", properties=JDBC_PROPS).show(truncate=False)
+spark.read \
+    .format("jdbc") \
+    .option("url", URL) \
+    .option("dbtable", "(SELECT DATABASE() db, @@hostname host) t") \
+    .option("driver", "com.mysql.cj.jdbc.Driver") \
+    .option("user", MYSQL_USER) \
+    .option("password", MYSQL_PW) \
+    .option("fetchsize", "1000") \
+    .load() \
+    .show(truncate=False)
 
 # ---------- read raw & rollup ----------
 # Assumes raw table and columns like DP_DATE (datetime/timestamp) and DP_MSISDN (user id).
 raw_tbl = "DP_CDR_Data"
-raw = spark.read.jdbc(url=URL, table=raw_tbl, properties=JDBC_PROPS)
+raw = (spark.read
+       .format("jdbc")
+       .option("url", URL)
+       .option("dbtable", raw_tbl)
+       .option("driver", "com.mysql.cj.jdbc.Driver")
+       .option("user", MYSQL_USER)
+       .option("password", MYSQL_PW)
+       .option("fetchsize", "1000")
+       .load()
+       )
 
 # Date filter if provided
 if START and END:

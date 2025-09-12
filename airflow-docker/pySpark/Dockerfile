@@ -11,8 +11,8 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 ENV PYSPARK_PYTHON=python3
 
 WORKDIR /app
-COPY PySparkAnalysis.py /app/
-COPY pySparkModel.py /app/
+COPY pySpark/PySparkAnalysis.py /app/
+COPY pySpark/pySparkModel.py /app/
 
 # your Python deps (keep what you had)
 RUN python3 -m pip install --no-cache-dir pandas mysql-connector-python
