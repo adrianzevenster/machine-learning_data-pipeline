@@ -1,15 +1,5 @@
-# ─────────────────────────────────────────────────────────────────────────────
-#  Airflow + MySQL + Flask + optional EDA container
-# ─────────────────────────────────────────────────────────────────────────────
-#  Save as: docker-compose.yml
-#  Start stack:   docker compose up -d
-#  Tear down:     docker compose down -v
-# ─────────────────────────────────────────────────────────────────────────────
 
 services:
-  # --------------------------------------------------------------------------
-  # Postgres – Airflow metadata DB
-  # --------------------------------------------------------------------------
   postgres:
     image: postgres:13
     environment:
@@ -24,17 +14,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks: [airflow-network]
 
-  # --------------------------------------------------------------------------
-  # Redis – Celery broker
-  # --------------------------------------------------------------------------
   redis:
     image: redis:6
     container_name: airflow-redis
     networks: [airflow-network]
 
-  # --------------------------------------------------------------------------
-  # MySQL – pipeline data store
-  # --------------------------------------------------------------------------
   mysql:
     image: mysql:8.0
     container_name: local-mysql
@@ -48,13 +32,9 @@ services:
       interval: 30s
       retries: 5
     networks: [airflow-network]
-    # Uncomment if you need host access
     # ports:
     #   - "3307:3306"    # host 3307 → container 3306
 
-  # --------------------------------------------------------------------------
-  # One‑shot Airflow DB bootstrap
-  # --------------------------------------------------------------------------
   airflow-init:
     image: custom-airflow:latest
     depends_on:
@@ -76,10 +56,6 @@ services:
           --role Admin --email admin@example.com
     networks: [ airflow-network ]
 
-
-  # --------------------------------------------------------------------------
-  # Airflow Webserver
-  # --------------------------------------------------------------------------
   airflow-webserver:
     build: .
     image: custom-airflow:latest
@@ -111,9 +87,6 @@ services:
       - ./ExploratoryDataAnalysis:/opt/airflow/eda
     networks: [airflow-network]
 
-  # --------------------------------------------------------------------------
-  # Airflow Scheduler
-  # --------------------------------------------------------------------------
   airflow-scheduler:
     image: custom-airflow:latest
     container_name: airflow-scheduler
@@ -142,9 +115,6 @@ services:
       - ./ExploratoryDataAnalysis:/opt/airflow/eda
     networks: [airflow-network]
 
-  # --------------------------------------------------------------------------
-  # Airflow Celery Worker
-  # --------------------------------------------------------------------------
   airflow-worker:
     image: custom-airflow:latest
     user: "50000:999"
@@ -178,9 +148,6 @@ services:
       - ./ExploratoryDataAnalysis:/opt/airflow/eda
     networks: [airflow-network]
 
-  # --------------------------------------------------------------------------
-  # Flask service (long‑running)
-  # --------------------------------------------------------------------------
   flaskapp:
     build: ./flaskapp
     image: flaskapp-flaskapp-app:latest
@@ -197,13 +164,9 @@ services:
     command: >
       sh -c "python DataBase.py && python streamingestion.py"
     networks: [airflow-network]
-    # Uncomment if you want to reach it from the host
     # ports:
     #   - "5001:5000"
 
-  # --------------------------------------------------------------------------
-  # Optional: EDA container (launched by Airflow DockerOperator)
-  # --------------------------------------------------------------------------
   python-app:
     build:
       context: ./ExploratoryDataAnalysis
@@ -223,9 +186,6 @@ services:
       bash -c "python main.py && python EDA.py"
     networks: [airflow-network]
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Named volumes & network
-# ─────────────────────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
   mydb_data:

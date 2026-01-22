@@ -58,20 +58,14 @@ def summary_statistics(df):
 
     columns = df.columns
     null_count = df.select([F.count(F.when(F.col(column).isNull(), column)).alias(column) for column in columns])
-    # null values
     print("Null Count:", null_count.count())
-    # Distinct Subscriber
     print("Distinct Subscriber: ", df.select("User").distinct().count())
-    # Churned User Counts
     churn_count = df.groupBy("M_TENURE_CHURN").count()
     churn_results = churn_count.collect()
     for row in churn_results:
         print(f'Value: {row["M_TENURE_CHURN"]}, Count: {row["count"]}')
-    # Unprocessed Skewness for M_DATA_SUM
     print("Skewness Measure w/ no Transformation:", df.agg({'M_DATA_SUM': 'skewness'}).collect()[0][0])
-    # Unprocessed Mean for M_DATA_SUM
     print("Mean Measuer w/ no Transformation:", df.agg({'M_DATA_SUM': 'mean'}).collect()[0][0])
-    # Standard Deviaton for Unprocessed M_DATA_SUM
     print("Standard Deviation w/ no Transformation:", df.agg({'M_DATA_SUM': 'stddev'}).collect()[0][0])
 
 sumStats = summary_statistics(df)
@@ -86,16 +80,13 @@ def correlation_calculation(df):
     numeric_cols = [field.name for field in df.schema.fields if field.name in columns_excluding_last
                     and isinstance(field.dataType, (IntegerType, DoubleType, FloatType))]
 
-
-    # Define variables to store the maximum correlation and its corresponding column
-    corr_max = float('-inf')  # Start with the lowest possible value
+    corr_max = float('-inf')
     corr_max_col = None
     for col in numeric_cols:
         corr_val = df.corr('M_TENURE_CHURN', col)
         if corr_val > corr_max:
             corr_max = corr_val
             corr_max_col = col
-    # Print the column with the highest correlation
     print(f"Column with the highest correlation to 'M_TENURE_CHURN': {corr_max_col}, Correlation value: {corr_max}")
     pandas_df = df.select(corr_max_col).dropna().toPandas()
     return  pandas_df, corr_max_col
@@ -118,12 +109,9 @@ def column_dropper(df, threshold):
     return df
 
 df = column_dropper(df, 0.6)
-# Calculate correlation with 'M_TENURE_CHURN' for each numeric column
-
 
 
 def min_max_scaler_with_transformations(df, cols_to_scale):
-    # Step 1: Apply min-max scaling
     for col in cols_to_scale:
         max_val = df.agg({col: 'max'}).collect()[0][0]
         min_val = df.agg({col: 'min'}).collect()[0][0]
@@ -131,44 +119,33 @@ def min_max_scaler_with_transformations(df, cols_to_scale):
 
         df = df.withColumn(new_column_name, (df[col] - min_val) / (max_val - min_val))
 
-    # Step 2: Calculate skewness, mean, and standard deviation for one of the columns
     skewness = df.agg({'scaled_M_DATA_SUM': 'skewness'}).collect()[0][0]
     mean = df.agg({'scaled_M_DATA_SUM': 'mean'}).collect()[0][0]
     stddev = df.agg({'scaled_M_DATA_SUM': 'stddev'}).collect()[0][0]
 
-    # Step 3: Perform reflection and transformation for 'scaled_M_DATA_SUM'
     max_data_sum = df.agg({'scaled_M_DATA_SUM': 'max'}).collect()[0][0]
     df = df.withColumn('Reflect_DATA_SUM', (max_data_sum + 1) - df['scaled_M_DATA_SUM'])
     df = df.withColumn('adj_DATA_SUM', 1 / F.log(df['Reflect_DATA_SUM']))
 
-    # Step 4: Select the relevant columns to show
     result_df = df.select('scaled_M_DATA_SUM', 'Reflect_DATA_SUM', 'adj_DATA_SUM')
 
-    # Step 5: Return the transformed DataFrame and statistics
     return result_df, skewness, mean, stddev
 
-# Call the function
 scaled_df, skewness, mean, stddev = min_max_scaler_with_transformations(df, cols_to_scale=['M_TENURE_CHURN', 'M_DATA_SUM', 'M_DATA_COUNT'])
 
-# Show the scaled data
 scaled_df.show()
 
-# Print the calculated statistics
 print(f"Skewness: {skewness}")
 print(f"Mean: {mean}")
 print(f"Standard Deviation: {stddev}")
 
-# Convert the scaled data to Pandas DataFrame for plotting
 pandas_df = scaled_df.toPandas()
 
-# Step 6: Plot the results using matplotlib
 def plot_transformed_data(pandas_df, column):
-    # Check if the log_transformed column exists
     if column not in pandas_df.columns:
         print(f"Column '{column}' not found in DataFrame!")
         return
 
-    # Plotting with matplotlib instead of seaborn to avoid further seaborn issues
     plt.figure(figsize=(8, 6))
     plt.hist(pandas_df[column], bins=30, alpha=0.7, color='blue', label=column)
     plt.title(f'Distribution of {column}')
@@ -176,16 +153,11 @@ def plot_transformed_data(pandas_df, column):
     plt.ylabel('Frequency')
     plt.legend()
 
-    # Save the plot to a file instead of sending it to a local server
-    plt.savefig('log_transformed_distribution.png')  # Save to a file
-    plt.show()  # Show the plot interactively
+    plt.savefig('log_transformed_distribution.png')
+    plt.show()
 
-
-# Example usage assuming the transformation has been applied correctly
-# and pandas_df is created properly
 pandas_df['log_transformed'] = np.log1p(pandas_df['scaled_M_DATA_SUM'])  # Example transformation
 
-# Plot the data
 plot_transformed_data(pandas_df, 'log_transformed')
 # print("null values:", scaled.where(scaled['M_DATA_SUM'].isNull().count()))
 # pandas_2 = scaled.dropna().toPandas()

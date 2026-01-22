@@ -9,7 +9,7 @@ import pandas as pd
 
 def execute_sql_query(query, database_name):
     db_config = {
-        "host": os.getenv("MYSQL_HOST", "mysql"),   # ← read from env
+        "host": os.getenv("MYSQL_HOST", "mysql"),
         "user": os.getenv("MYSQL_USER", "root"),
         "password": os.getenv("MYSQL_PASSWORD", "a?xBVq1!"),
         "database": database_name,
@@ -24,7 +24,7 @@ def execute_sql_query(query, database_name):
     return df
 
 if __name__ == "__main__":
-    query = "SELECT * FROM DP_CDR_Data LIMIT 5"  # Replace with a valid query
+    query = "SELECT * FROM DP_CDR_Data LIMIT 5"
     database_name = "RawData"
 
     try:

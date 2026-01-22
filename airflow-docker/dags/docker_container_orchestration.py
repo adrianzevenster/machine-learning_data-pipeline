@@ -1,22 +1,3 @@
-# /opt/airflow/dags/docker_container_orchestration.py
-"""
-Airflow DAG: local_dev_pipeline  – PySpark + EDA.
-
-What it does
-------------
-1) Waits for MySQL (local-mysql) to be reachable.
-2) Calls Flask /start_stream (via Airflow HTTP conn 'flask_service').
-3) Runs EDA container (optional host output mount if it exists).
-4) Runs PySparkAnalysis.py (entrypoint=/bin/sh; python3).
-5) Runs pySparkModel (uses image's entrypoint).
-
-Optional Airflow Variables
---------------------------
-- DATA_PIPELINE_ROOT   (abs host path to your project root; used for EDA output mount if present)
-- SPARK_PROJECT_ROOT   (abs host path to pySpark folder; NOT required by DAG; PySpark runs from image)
-- PARQUET_OUT_HOST     (abs host path to persist analysis outputs; if missing, no host mount is used)
-"""
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -97,7 +78,6 @@ with DAG(
         log_response=True,
     )
 
-    # EDA container (python-app:latest) on Airflow network
     run_eda = DockerOperator(
         task_id="run_eda",
         image="python-app:latest",
@@ -130,7 +110,6 @@ with DAG(
         command="sh -lc 'nslookup mysql && nc -vz -w 2 mysql 3306'",
     )
 
-    # PySparkAnalysis.py — override entrypoint so we can run python3 directly
     pyspark_analysis = DockerOperator(
         task_id="pyspark_analysis",
         image="pyspark-app:latest",
@@ -148,13 +127,10 @@ with DAG(
             "SPARK_EXECUTOR_MEMORY": "4g",
             "PYSPARK_SUBMIT_ARGS": "--conf spark.sql.shuffle.partitions=8 pyspark-shell",
         },
-        mount_tmp_dir=False,  # avoid the tmp bind mount error
+        mount_tmp_dir=False,
         tty=False,
     )
 
-
-
-    # PySpark model — let image entrypoint do its thing (as you had)
     pyspark_model = DockerOperator(
         task_id="pyspark_model",
         image="pyspark-app:latest",

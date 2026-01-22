@@ -2,7 +2,6 @@ import os
 import mysql.connector
 import pandas as pd
 
-# Database configuration
 db_config = {
     "host": os.getenv("DB_HOST", "mysql"),
     "user": os.getenv("DB_USER", "root"),
@@ -68,7 +67,7 @@ def create_table_from_csv(csv_file):
 if __name__ == "__main__":
     if table_has_data():
         print("Table already populated. Skipping database initialization.")
-        exit(0)  # Exit gracefully
+        exit(0)
     else:
         print("Populating the database...")
         create_table_from_csv('/app/RawData.csv')

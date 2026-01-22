@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os, sys
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -13,9 +12,7 @@ MYSQL_PASS = os.getenv("MYSQL_PASSWORD", "sparkpw")
 def wait_for_host(host, port=3306, attempts=20, delay=3):
     for i in range(1, attempts + 1):
         try:
-            # DNS first (will raise on unknown host)
             ip = socket.gethostbyname(host)
-            # then TCP connect
             with socket.create_connection((host, port), timeout=3):
                 print(f"[mysql ready] {host} ({ip}):{port}")
                 return True
@@ -24,13 +21,11 @@ def wait_for_host(host, port=3306, attempts=20, delay=3):
             time.sleep(delay)
     return False
 
-# normalize host if something odd slips in
-MYSQL_HOST = os.getenv("MYSQL_HOST", "local-mysql")  # keep your original default
+MYSQL_HOST = os.getenv("MYSQL_HOST", "local-mysql")
 if MYSQL_HOST in {"mysql", "db", "flaskapp-flaskapp-db-1"}:
     print(f"[note] Overriding MYSQL_HOST '{MYSQL_HOST}' -> 'local-mysql'")
     MYSQL_HOST = "local-mysql"
 
-# (re)build JDBC_URL AFTER normalization
 JDBC_URL = (
     f"jdbc:mysql://{MYSQL_HOST}:3306/{MYSQL_DB}"
     "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
@@ -39,12 +34,11 @@ JDBC_URL = (
 
 print(f"[cfg] host={MYSQL_HOST} db={MYSQL_DB} user={MYSQL_USER}")
 
-# wait for DNS + port before Spark touches JDBC
 if not wait_for_host(MYSQL_HOST, 3306, attempts=20, delay=3):
     raise SystemExit(f"[fatal] MySQL host '{MYSQL_HOST}' not reachable after retries")
 
-START = os.getenv("PROCESSED_START")   # e.g. '2025-08-22'
-END   = os.getenv("PROCESSED_END")     # e.g. '2025-08-22'
+START = os.getenv("PROCESSED_START")
+END   = os.getenv("PROCESSED_END")
 
 
 JDBC_PROPS = {
@@ -122,7 +116,6 @@ predicates = []
 if START and END:
     start_dt = datetime.strptime(START, "%Y-%m-%d")
     end_dt   = datetime.strptime(END, "%Y-%m-%d")
-    # cap shard count to avoid thousands of small tasks
     max_days = 14
     days = (end_dt - start_dt).days + 1
     if days > 1 and days <= max_days:
@@ -146,19 +139,16 @@ if predicates:
 else:
     df = load_df_with_query(main_sql)
 
-# AFTER (bounded actions)
 print("\n=== INPUT SNAPSHOT (final) ===")
-non_empty = df.limit(1).count()  # at most 1 row pull
+non_empty = df.limit(1).count()
 print(f"[has any rows] {bool(non_empty)}")
 df.show(10, truncate=False)
 
 usable = df.where(F.col(label_col).isNotNull())
 
-# Only check “has labels” without scanning the table
 has_labeled = usable.limit(1).count()
 print(f"[has labeled rows] {bool(has_labeled)}")
 
-# Distinct label check but cap to 3 unique values
 label_cnt = usable.select(label_col).distinct().limit(3).count()
 print(f"[distinct label count (capped)] {label_cnt}")
 

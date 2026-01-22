@@ -11,7 +11,6 @@ from main import execute_sql_query
 
 logging.basicConfig(level=logging.DEBUG)
 
-# Load query parameters from JSON
 try:
     with open('query_params.json', 'r') as file:
         query_params = json.load(file)
@@ -20,7 +19,6 @@ except Exception as e:
     raise
 
 try:
-    # Construct the SQL query dynamically
     logging.debug("Executing SQL query...")
     query = f"""
         SELECT * FROM DP_CDR_Data 
@@ -71,7 +69,6 @@ def r2(x, y, **kwargs):
     ax.text(0.05, 0.95, f'R2 = {r2_val:.2f}', transform=ax.transAxes, fontsize=12, verticalalignment='top')
 
 
-# Check and convert column types to numeric if necessary
 for col in df.columns:
     df[col] = pd.to_numeric(df[col], errors='coerce')
 
