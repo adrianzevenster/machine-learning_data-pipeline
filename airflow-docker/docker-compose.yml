@@ -186,6 +186,22 @@ services:
       bash -c "python main.py && python EDA.py"
     networks: [airflow-network]
 
+  model-monitoring:
+    build: ./model_monitoring
+    image: model-monitoring:latest
+    container_name: model-monitoring-container
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_USER: root
+      MYSQL_PASSWORD: "a?xBVq1!"
+      MYSQL_DATABASE: RawData
+    volumes:
+      - ./output:/app/output
+    networks: [ airflow-network ]
+
 volumes:
   postgres_data:
   mydb_data:

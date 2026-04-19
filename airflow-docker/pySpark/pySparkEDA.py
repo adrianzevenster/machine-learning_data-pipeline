@@ -156,7 +156,7 @@ def plot_transformed_data(pandas_df, column):
     plt.savefig('log_transformed_distribution.png')
     plt.show()
 
-pandas_df['log_transformed'] = np.log1p(pandas_df['scaled_M_DATA_SUM'])  # Example transformation
+pandas_df['log_transformed'] = np.log1p(pandas_df['scaled_M_DATA_SUM'])
 
 plot_transformed_data(pandas_df, 'log_transformed')
 # print("null values:", scaled.where(scaled['M_DATA_SUM'].isNull().count()))

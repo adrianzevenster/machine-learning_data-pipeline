@@ -1,13 +1,22 @@
-import os, sys
+import os
+import sys
+import socket
+import time
+from datetime import datetime, timedelta
+
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
-from datetime import datetime, timedelta
-import socket, time
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import VectorAssembler, StringIndexer
+from pyspark.ml.classification import RandomForestClassifier
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
 
 
-MYSQL_DB   = os.getenv("MYSQL_DATABASE", "RawData")
+MYSQL_DB = os.getenv("MYSQL_DATABASE", "RawData")
 MYSQL_USER = os.getenv("MYSQL_USER", "spark")
 MYSQL_PASS = os.getenv("MYSQL_PASSWORD", "sparkpw")
+
 
 def wait_for_host(host, port=3306, attempts=20, delay=3):
     for i in range(1, attempts + 1):
@@ -21,6 +30,7 @@ def wait_for_host(host, port=3306, attempts=20, delay=3):
             time.sleep(delay)
     return False
 
+
 MYSQL_HOST = os.getenv("MYSQL_HOST", "local-mysql")
 if MYSQL_HOST in {"mysql", "db", "flaskapp-flaskapp-db-1"}:
     print(f"[note] Overriding MYSQL_HOST '{MYSQL_HOST}' -> 'local-mysql'")
@@ -31,15 +41,13 @@ JDBC_URL = (
     "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
 )
 
-
 print(f"[cfg] host={MYSQL_HOST} db={MYSQL_DB} user={MYSQL_USER}")
 
 if not wait_for_host(MYSQL_HOST, 3306, attempts=20, delay=3):
     raise SystemExit(f"[fatal] MySQL host '{MYSQL_HOST}' not reachable after retries")
 
 START = os.getenv("PROCESSED_START")
-END   = os.getenv("PROCESSED_END")
-
+END = os.getenv("PROCESSED_END")
 
 JDBC_PROPS = {
     "user": MYSQL_USER,
@@ -69,8 +77,6 @@ print(f"[cfg] host={MYSQL_HOST} db={MYSQL_DB} user={MYSQL_USER}")
 if START and END:
     print(f"[cfg] date window: {START} .. {END}")
 
-base_select = "*"
-label_col   = "M_TENURE_CHURN"
 
 def load_df_with_query(sql):
     return (
@@ -79,8 +85,8 @@ def load_df_with_query(sql):
         .option("url", JDBC_URL)
         .option("dbtable", f"({sql}) t")
         .option("driver", "com.mysql.cj.jdbc.Driver")
-        .option("fetchsize", "1000")       # ← Spark will call setFetchSize(1000)
-        .options(**{k: v for k, v in JDBC_PROPS.items() if k not in ("user","password","driver")})
+        .option("fetchsize", "1000")
+        .options(**{k: v for k, v in JDBC_PROPS.items() if k not in ("user", "password", "driver")})
         .option("user", MYSQL_USER)
         .option("password", MYSQL_PASS)
         .load()
@@ -90,50 +96,58 @@ def load_df_with_query(sql):
 schema_peek_where = ""
 if START and END:
     schema_peek_where = f"WHERE Date >= '{START}' AND Date <= '{END}'"
+
 schema_peek_sql = f"SELECT * FROM {TABLE} {schema_peek_where} LIMIT 50"
 peek = load_df_with_query(schema_peek_sql)
+
 print("\n=== INPUT SNAPSHOT (peek) ===")
 print(f"[peek rows] {peek.count()}")
 peek.printSchema()
 peek.show(10, truncate=False)
 
 cols = peek.columns
+label_col = "M_TENURE_CHURN"
+
 if label_col not in cols:
     print(f"[warn] Column '{label_col}' not found -> nothing to train. Exiting successfully.")
     sys.exit(0)
 
 feature_cols = [c for c in cols if c not in ("Date", "User", label_col)]
-narrow_select = ", ".join([*(f"`{c}`" for c in feature_cols), f"`{label_col}`"])
-print(f"[features] {feature_cols}")
+select_cols = [c for c in cols if c != "User"]
 
+narrow_select = ", ".join([f"`{c}`" for c in select_cols])
+print(f"[features] {feature_cols}")
 
 where_clause = ""
 if START and END:
     where_clause = f"WHERE Date >= '{START}' AND Date <= '{END}'"
+
 main_sql = f"SELECT {narrow_select} FROM {TABLE} {where_clause}"
 
 predicates = []
 if START and END:
     start_dt = datetime.strptime(START, "%Y-%m-%d")
-    end_dt   = datetime.strptime(END, "%Y-%m-%d")
+    end_dt = datetime.strptime(END, "%Y-%m-%d")
     max_days = 14
     days = (end_dt - start_dt).days + 1
     if days > 1 and days <= max_days:
         for i in range(days):
             d0 = (start_dt + timedelta(days=i)).strftime("%Y-%m-%d")
-            d1 = (start_dt + timedelta(days=i+1)).strftime("%Y-%m-%d")
+            d1 = (start_dt + timedelta(days=i + 1)).strftime("%Y-%m-%d")
             predicates.append(f"Date >= '{d0}' AND Date < '{d1}'")
 
 if predicates:
     print(f"[jdbc predicates] {len(predicates)} shards")
     df = (
-        spark.read.format("jdbc")
+        spark.read
+        .format("jdbc")
         .option("url", JDBC_URL)
         .option("dbtable", f"({main_sql}) t")
         .option("fetchsize", "1000")
         .option("driver", "com.mysql.cj.jdbc.Driver")
-        .option("user", MYSQL_USER).option("password", MYSQL_PASS)
-        .option("predicates", predicates)   # ← split by day
+        .option("user", MYSQL_USER)
+        .option("password", MYSQL_PASS)
+        .option("predicates", predicates)
         .load()
     )
 else:
@@ -156,29 +170,44 @@ if (not has_labeled) or label_cnt < 2:
     print("[warn] Not enough labeled data (need >=1 row and >=2 classes). Exiting successfully.")
     sys.exit(0)
 
-from pyspark.ml import Pipeline
-from pyspark.ml.feature import VectorAssembler, StringIndexer
-from pyspark.ml.classification import RandomForestClassifier
-from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
+assembler = VectorAssembler(
+    inputCols=feature_cols,
+    outputCol="features",
+    handleInvalid="skip"
+)
 
-assembler     = VectorAssembler(inputCols=feature_cols, outputCol="features", handleInvalid="skip")
-label_indexer = StringIndexer(inputCol=label_col, outputCol="label", handleInvalid="skip")
-rf            = RandomForestClassifier(featuresCol="features", labelCol="label", seed=42)
+label_indexer = StringIndexer(
+    inputCol=label_col,
+    outputCol="label",
+    handleInvalid="skip"
+)
+
+rf = RandomForestClassifier(
+    featuresCol="features",
+    labelCol="label",
+    seed=42
+)
 
 pipeline = Pipeline(stages=[label_indexer, assembler, rf])
 
-param_grid = (ParamGridBuilder()
-              .addGrid(rf.numTrees, [50])     # ← trim grid to keep memory down
-              .addGrid(rf.maxDepth, [5, 10])
-              .build())
+param_grid = (
+    ParamGridBuilder()
+    .addGrid(rf.numTrees, [50])
+    .addGrid(rf.maxDepth, [5, 10])
+    .build()
+)
 
-evaluator = BinaryClassificationEvaluator(labelCol="label", rawPredictionCol="rawPrediction")
+evaluator = BinaryClassificationEvaluator(
+    labelCol="label",
+    rawPredictionCol="rawPrediction"
+)
 
 train_df, test_df = usable.randomSplit([0.8, 0.2], seed=42)
-print(f"[split] train={train_df.count()}  test={test_df.count()}")
+train_count = train_df.count()
+test_count = test_df.count()
+print(f"[split] train={train_count}  test={test_count}")
 
-if train_df.count() == 0:
+if train_count == 0:
     print("[warn] train split ended up empty -> exiting successfully.")
     sys.exit(0)
 
@@ -193,10 +222,52 @@ cv = CrossValidator(
 cv_model = cv.fit(train_df)
 print("[model] trained OK")
 
-if test_df.count() > 0:
-    metric = evaluator.evaluate(cv_model.transform(test_df))
+if test_count > 0:
+    predictions = cv_model.transform(test_df)
+    metric = evaluator.evaluate(predictions)
     print(f"[auc] {metric:.4f}")
 else:
-    print("[note] test set empty; skipping evaluation.")
+    print("[note] test set empty; using train set predictions for persistence.")
+    predictions = cv_model.transform(train_df)
 
+prediction_output = (
+    predictions
+    .withColumn("probability_0", F.col("probability").getItem(0))
+    .withColumn("probability_1", F.col("probability").getItem(1))
+    .withColumn(
+        "Date",
+        F.coalesce(F.to_timestamp("Date"), F.current_timestamp())
+    )
+    .select(
+        F.col("label").cast("double").alias("label"),
+        F.col("prediction").cast("double").alias("prediction"),
+        F.col("probability_0").cast("double").alias("probability_0"),
+        F.col("probability_1").cast("double").alias("probability_1"),
+        F.col("Date")
+    )
+)
+
+prediction_count = prediction_output.count()
+print(f"[prediction_output.count] {prediction_count}")
+prediction_output.show(10, truncate=False)
+
+if prediction_count == 0:
+    print("[warn] No prediction rows produced; skipping write to model_predictions.")
+    sys.exit(0)
+
+(
+    prediction_output.write
+    .format("jdbc")
+    .mode("append")
+    .option("url", JDBC_URL)
+    .option("dbtable", f"{MYSQL_DB}.model_predictions")
+    .option("user", MYSQL_USER)
+    .option("password", MYSQL_PASS)
+    .option("driver", "com.mysql.cj.jdbc.Driver")
+    .option("numPartitions", "1")
+    .option("sessionInitStatement", "SET @spark_tag='model_predictions_write'")
+    .save()
+)
+
+print("[write] model_predictions append done")
 print("[done] pySparkModel completed successfully.")
