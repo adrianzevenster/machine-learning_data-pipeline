@@ -17,7 +17,7 @@ services:
       - ./data:/app/data
       - ./output:/app/output
       - ./config.json:/app/config.json:ro
-    entrypoint: /app/entrypoint.sh  # Run the entrypoint script only here
+    entrypoint: /app/entrypoint.sh
     depends_on:
       - pyspark-analysis
     networks:

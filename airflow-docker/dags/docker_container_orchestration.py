@@ -1,22 +1,3 @@
-# /opt/airflow/dags/docker_container_orchestration.py
-"""
-Airflow DAG: local_dev_pipeline  – PySpark + EDA.
-
-What it does
-------------
-1) Waits for MySQL (local-mysql) to be reachable.
-2) Calls Flask /start_stream (via Airflow HTTP conn 'flask_service').
-3) Runs EDA container (optional host output mount if it exists).
-4) Runs PySparkAnalysis.py (entrypoint=/bin/sh; python3).
-5) Runs pySparkModel (uses image's entrypoint).
-
-Optional Airflow Variables
---------------------------
-- DATA_PIPELINE_ROOT   (abs host path to your project root; used for EDA output mount if present)
-- SPARK_PROJECT_ROOT   (abs host path to pySpark folder; NOT required by DAG; PySpark runs from image)
-- PARQUET_OUT_HOST     (abs host path to persist analysis outputs; if missing, no host mount is used)
-"""
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -42,14 +23,13 @@ DEFAULT_ARGS = {
 MYSQL_HOST = "mysql"
 MYSQL_PORT = 3306
 MYSQL_USER = "root"
-MYSQL_PWD  = "a?xBVq1!"
-MYSQL_DB   = "RawData"
+MYSQL_PWD = "a?xBVq1!"
+MYSQL_DB = "RawData"
 
-DOCKER_NETWORK = os.getenv("AIRFLOW_DOCKER_NETWORK", "shared-network")
+DOCKER_NETWORK = os.getenv("AIRFLOW_DOCKER_NETWORK", "airflow-network")
 
 DATA_PIPELINE_ROOT = Variable.get("DATA_PIPELINE_ROOT", default_var=None)
-SPARK_PROJECT_ROOT = Variable.get("SPARK_PROJECT_ROOT", default_var=None)
-PARQUET_OUT_HOST   = Variable.get("PARQUET_OUT_HOST", default_var=None)
+PARQUET_OUT_HOST = Variable.get("PARQUET_OUT_HOST", default_var=None)
 
 EDA_MOUNTS = []
 if DATA_PIPELINE_ROOT:
@@ -61,6 +41,13 @@ PYSPARK_ANALYSIS_MOUNTS = []
 if PARQUET_OUT_HOST and Path(PARQUET_OUT_HOST).exists():
     PYSPARK_ANALYSIS_MOUNTS = [Mount(source=str(PARQUET_OUT_HOST), target="/out", type="bind")]
 
+MONITORING_MOUNTS = []
+if DATA_PIPELINE_ROOT:
+    monitoring_out = Path(DATA_PIPELINE_ROOT) / "output"
+    if monitoring_out.exists():
+        MONITORING_MOUNTS = [Mount(source=str(monitoring_out), target="/app/output", type="bind")]
+
+
 def _wait_for_mysql() -> bool:
     try:
         with socket.create_connection((MYSQL_HOST, MYSQL_PORT), timeout=2):
@@ -68,9 +55,10 @@ def _wait_for_mysql() -> bool:
     except OSError:
         return False
 
+
 with DAG(
         dag_id="local_dev_pipeline",
-        description="Orchestrate MySQL → Flask → EDA → PySpark",
+        description="Orchestrate MySQL -> Flask -> EDA -> PySpark -> Monitoring",
         default_args=DEFAULT_ARGS,
         schedule_interval=None,
         start_date=datetime(2025, 1, 1),
@@ -97,7 +85,6 @@ with DAG(
         log_response=True,
     )
 
-    # EDA container (python-app:latest) on Airflow network
     run_eda = DockerOperator(
         task_id="run_eda",
         image="python-app:latest",
@@ -130,13 +117,12 @@ with DAG(
         command="sh -lc 'nslookup mysql && nc -vz -w 2 mysql 3306'",
     )
 
-    # PySparkAnalysis.py — override entrypoint so we can run python3 directly
     pyspark_analysis = DockerOperator(
         task_id="pyspark_analysis",
         image="pyspark-app:latest",
         entrypoint="/bin/sh",
         command=["-lc", "python3 /app/PySparkAnalysis.py"],
-        docker_url="unix://var/run/docker.sock",
+        docker_url="unix:///var/run/docker.sock",
         network_mode=DOCKER_NETWORK,
         environment={
             "MYSQL_HOST": "mysql",
@@ -148,13 +134,10 @@ with DAG(
             "SPARK_EXECUTOR_MEMORY": "4g",
             "PYSPARK_SUBMIT_ARGS": "--conf spark.sql.shuffle.partitions=8 pyspark-shell",
         },
-        mount_tmp_dir=False,  # avoid the tmp bind mount error
+        mount_tmp_dir=False,
         tty=False,
     )
 
-
-
-    # PySpark model — let image entrypoint do its thing (as you had)
     pyspark_model = DockerOperator(
         task_id="pyspark_model",
         image="pyspark-app:latest",
@@ -173,10 +156,28 @@ with DAG(
             "PYSPARK_SUBMIT_ARGS": "--conf spark.sql.shuffle.partitions=4 pyspark-shell",
         },
         network_mode=DOCKER_NETWORK,
-        docker_url="unix://var/run/docker.sock",
+        docker_url="unix:///var/run/docker.sock",
         mount_tmp_dir=False,
         mem_limit="4g",
     )
 
+    run_monitoring = DockerOperator(
+        task_id="run_monitoring",
+        image="model-monitoring:latest",
+        container_name="model-monitoring-{{ ts_nodash }}",
+        auto_remove=True,
+        docker_url="unix:///var/run/docker.sock",
+        network_mode=DOCKER_NETWORK,
+        mount_tmp_dir=False,
+        do_xcom_push=False,
+        environment={
+            "MYSQL_HOST": MYSQL_HOST,
+            "MYSQL_USER": MYSQL_USER,
+            "MYSQL_PASSWORD": MYSQL_PWD,
+            "MYSQL_DATABASE": MYSQL_DB,
+        },
+        mounts=MONITORING_MOUNTS,
+        command="python /app/Model_Monitoring.py",
+    )
 
-    mysql_ready >> pyspark_db_dns_check >> start_stream >> run_eda >> pyspark_analysis >> pyspark_model
+    mysql_ready >> pyspark_db_dns_check >> start_stream >> run_eda >> pyspark_analysis >> pyspark_model >> run_monitoring
