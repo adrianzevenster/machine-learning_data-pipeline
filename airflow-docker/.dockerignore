@@ -1,0 +1,6 @@
+logs/
+output/
+jars/
+**/__pycache__/
+**/*.py[cod]
+flaskapp/RawData.csv

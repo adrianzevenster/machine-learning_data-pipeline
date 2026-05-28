@@ -5,11 +5,13 @@ from sklearn.metrics import r2_score
 from main import execute_sql_query
 import seaborn as sns
 import json
+import os
 
 import logging
 from main import execute_sql_query
 
 logging.basicConfig(level=logging.DEBUG)
+os.makedirs("./output", exist_ok=True)
 
 try:
     with open('query_params.json', 'r') as file:
@@ -25,11 +27,21 @@ try:
         WHERE dp_date BETWEEN '{query_params['start_date']}' AND '{query_params['end_date']}'
     """
     df = execute_sql_query(query, database_name="RawData")
+    if df.empty:
+        logging.warning("Configured EDA date window returned no rows; loading a bounded fallback sample.")
+        fallback_limit = int(os.getenv("EDA_FALLBACK_LIMIT", "10000"))
+        df = execute_sql_query(
+            f"SELECT * FROM DP_CDR_Data ORDER BY DP_DATE DESC LIMIT {fallback_limit}",
+            database_name="RawData",
+        )
     logging.debug(f"Query executed successfully. Dataframe shape: {df.shape}")
     print(df.head())
 except Exception as e:
     logging.error(f"Error occurred: {e}")
     raise
+
+if df.empty:
+    raise ValueError("EDA input is empty after fallback sampling.")
 
 
 def summary(df):

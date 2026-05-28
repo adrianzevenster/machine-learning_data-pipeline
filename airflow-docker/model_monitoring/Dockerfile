@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir \
     plotly \
     kaleido
 
-COPY Model_Monitoring.py /app/Model_Monitoring.py
+COPY model_monitoring/Model_Monitoring.py /app/Model_Monitoring.py
+COPY quality /app/quality
 
 CMD ["python", "/app/Model_Monitoring.py"]

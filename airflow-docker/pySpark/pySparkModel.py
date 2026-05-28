@@ -11,11 +11,13 @@ from pyspark.ml.feature import VectorAssembler, StringIndexer
 from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.functions import vector_to_array
 
 
 MYSQL_DB = os.getenv("MYSQL_DATABASE", "RawData")
 MYSQL_USER = os.getenv("MYSQL_USER", "spark")
 MYSQL_PASS = os.getenv("MYSQL_PASSWORD", "sparkpw")
+PREDICTIONS_WRITE_MODE = os.getenv("MODEL_PREDICTIONS_WRITE_MODE", "overwrite")
 
 
 def wait_for_host(host, port=3306, attempts=20, delay=3):
@@ -32,9 +34,6 @@ def wait_for_host(host, port=3306, attempts=20, delay=3):
 
 
 MYSQL_HOST = os.getenv("MYSQL_HOST", "local-mysql")
-if MYSQL_HOST in {"mysql", "db", "flaskapp-flaskapp-db-1"}:
-    print(f"[note] Overriding MYSQL_HOST '{MYSQL_HOST}' -> 'local-mysql'")
-    MYSQL_HOST = "local-mysql"
 
 JDBC_URL = (
     f"jdbc:mysql://{MYSQL_HOST}:3306/{MYSQL_DB}"
@@ -109,8 +108,10 @@ cols = peek.columns
 label_col = "M_TENURE_CHURN"
 
 if label_col not in cols:
-    print(f"[warn] Column '{label_col}' not found -> nothing to train. Exiting successfully.")
-    sys.exit(0)
+    raise SystemExit(f"[fatal] Column '{label_col}' not found in {TABLE}.")
+
+if "Date" not in cols:
+    raise SystemExit(f"[fatal] Column 'Date' not found in {TABLE}; monitoring requires timestamps.")
 
 feature_cols = [c for c in cols if c not in ("Date", "User", label_col)]
 select_cols = [c for c in cols if c != "User"]
@@ -167,8 +168,15 @@ label_cnt = usable.select(label_col).distinct().limit(3).count()
 print(f"[distinct label count (capped)] {label_cnt}")
 
 if (not has_labeled) or label_cnt < 2:
-    print("[warn] Not enough labeled data (need >=1 row and >=2 classes). Exiting successfully.")
-    sys.exit(0)
+    raise SystemExit("[fatal] Not enough labeled data to train (need rows from at least 2 classes).")
+
+label_distribution = usable.groupBy(label_col).count().orderBy(label_col)
+print("[label distribution]")
+label_distribution.show()
+
+min_class_count = label_distribution.agg(F.min("count").alias("min_count")).collect()[0]["min_count"]
+if min_class_count < 2:
+    raise SystemExit("[fatal] Each label class needs at least 2 rows for cross-validation.")
 
 assembler = VectorAssembler(
     inputCols=feature_cols,
@@ -208,14 +216,21 @@ test_count = test_df.count()
 print(f"[split] train={train_count}  test={test_count}")
 
 if train_count == 0:
-    print("[warn] train split ended up empty -> exiting successfully.")
-    sys.exit(0)
+    raise SystemExit("[fatal] Train split ended up empty.")
+
+train_label_count = train_df.select(label_col).distinct().count()
+if train_label_count < 2:
+    print("[warn] Train split has one class; using full labeled dataset for training.")
+    train_df = usable
+    train_count = train_df.count()
+    test_df = usable
+    test_count = test_df.count()
 
 cv = CrossValidator(
     estimator=pipeline,
     estimatorParamMaps=param_grid,
     evaluator=evaluator,
-    numFolds=3,
+    numFolds=min(3, int(min_class_count)),
     parallelism=1
 )
 
@@ -232,8 +247,9 @@ else:
 
 prediction_output = (
     predictions
-    .withColumn("probability_0", F.col("probability").getItem(0))
-    .withColumn("probability_1", F.col("probability").getItem(1))
+    .withColumn("probability_array", vector_to_array("probability"))
+    .withColumn("probability_0", F.col("probability_array").getItem(0))
+    .withColumn("probability_1", F.col("probability_array").getItem(1))
     .withColumn(
         "Date",
         F.coalesce(F.to_timestamp("Date"), F.current_timestamp())
@@ -252,22 +268,22 @@ print(f"[prediction_output.count] {prediction_count}")
 prediction_output.show(10, truncate=False)
 
 if prediction_count == 0:
-    print("[warn] No prediction rows produced; skipping write to model_predictions.")
-    sys.exit(0)
+    raise SystemExit("[fatal] No prediction rows produced; model_predictions was not written.")
 
 (
     prediction_output.write
     .format("jdbc")
-    .mode("append")
+    .mode(PREDICTIONS_WRITE_MODE)
     .option("url", JDBC_URL)
     .option("dbtable", f"{MYSQL_DB}.model_predictions")
     .option("user", MYSQL_USER)
     .option("password", MYSQL_PASS)
     .option("driver", "com.mysql.cj.jdbc.Driver")
     .option("numPartitions", "1")
+    .option("truncate", "true")
     .option("sessionInitStatement", "SET @spark_tag='model_predictions_write'")
     .save()
 )
 
-print("[write] model_predictions append done")
+print(f"[write] model_predictions {PREDICTIONS_WRITE_MODE} done")
 print("[done] pySparkModel completed successfully.")
