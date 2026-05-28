@@ -1,5 +1,3 @@
-# airflow-docker/pySpark/entrypoint.sh
-#!/usr/bin/env bash
 set -euo pipefail
 
 CFG=/app/config.json
