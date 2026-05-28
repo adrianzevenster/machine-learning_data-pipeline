@@ -48,6 +48,29 @@ def split_reference_analysis(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     return reference_df, analysis_df
 
 
+def split_with_class_coverage(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    reference_df, analysis_df = split_reference_analysis(df)
+
+    if reference_df["label"].nunique() >= 2 and analysis_df["label"].nunique() >= 2:
+        return reference_df, analysis_df
+
+    print("Chronological split does not contain both classes in both partitions; using stratified fallback.")
+    reference_parts = []
+    analysis_parts = []
+
+    for _, class_df in df.groupby("label", sort=False):
+        class_split = int(len(class_df) * 0.5)
+        if class_split == 0 or class_split == len(class_df):
+            raise ValueError("Each class needs at least 2 rows for monitoring.")
+        reference_parts.append(class_df.iloc[:class_split])
+        analysis_parts.append(class_df.iloc[class_split:])
+
+    reference_df = pd.concat(reference_parts).sort_values("Date").reset_index(drop=True)
+    analysis_df = pd.concat(analysis_parts).sort_values("Date").reset_index(drop=True)
+
+    return reference_df, analysis_df
+
+
 def run_monitoring_job() -> None:
     output_dir = Path("/app/output")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -61,7 +84,7 @@ def run_monitoring_job() -> None:
         print("Single-class data detected in full dataset, skipping calculations.")
         return
 
-    reference_df, analysis_df = split_reference_analysis(predictions_df)
+    reference_df, analysis_df = split_with_class_coverage(predictions_df)
 
     ref_labels = reference_df["label"].dropna().unique()
     ana_labels = analysis_df["label"].dropna().unique()
@@ -70,12 +93,10 @@ def run_monitoring_job() -> None:
     print(f"Analysis rows: {len(analysis_df)}")
 
     if len(ref_labels) < 2:
-        print("Reference data contains fewer than 2 classes, skipping monitoring.")
-        return
+        raise ValueError("Reference data contains fewer than 2 classes.")
 
-    if analysis_df.empty:
-        print("Analysis data is empty, skipping monitoring.")
-        return
+    if len(ana_labels) < 2:
+        raise ValueError("Analysis data contains fewer than 2 classes.")
 
     calculator = nml.PerformanceCalculator(
         problem_type="classification_binary",
@@ -84,7 +105,7 @@ def run_monitoring_job() -> None:
         y_pred_proba="probability_1",
         timestamp_column_name="Date",
         metrics=["roc_auc", "f1", "accuracy"],
-        chunk_size=max(200, min(len(analysis_df), 1000)),
+        chunk_size=max(1, min(len(analysis_df), 1000)),
     )
 
     calculator.fit(reference_data=reference_df)

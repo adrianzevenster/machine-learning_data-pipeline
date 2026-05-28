@@ -19,14 +19,24 @@ services:
     container_name: airflow-redis
     networks: [airflow-network]
 
+  custom-airflow:
+    build: .
+    image: custom-airflow:latest
+    profiles: ["build"]
+    command: ["version"]
+    networks: [airflow-network]
+
   mysql:
     image: mysql:8.0
     container_name: local-mysql
     environment:
       MYSQL_ROOT_PASSWORD: "a?xBVq1!"
       MYSQL_DATABASE: RawData
+      MYSQL_USER: spark
+      MYSQL_PASSWORD: sparkpw
     volumes:
       - mydb_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p'a?xBVq1!'"]
       interval: 30s
@@ -49,7 +59,8 @@ services:
       - "-c"
       - |
         set -e
-        exec airflow db upgrade && \
+        airflow db upgrade
+        airflow users delete --username airflow || true
         airflow users create \
           --username airflow --password airflow \
           --firstname Airflow --lastname Admin \
@@ -74,6 +85,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
       AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__WEBSERVER__RATE_LIMIT_STORAGE_URI: redis://redis:6379/1
       AIRFLOW_UID: "50000"
     command: ["webserver"]
     ports:
@@ -171,6 +183,7 @@ services:
     build:
       context: ./ExploratoryDataAnalysis
     image: python-app:latest
+    profiles: ["build"]
     container_name: python-app-container
     depends_on:
       mysql:
@@ -186,9 +199,21 @@ services:
       bash -c "python main.py && python EDA.py"
     networks: [airflow-network]
 
+  pyspark-app:
+    build:
+      context: ./pySpark
+    image: pyspark-app:latest
+    profiles: ["build"]
+    command: >
+      sh -c "python3 /app/PySparkAnalysis.py"
+    networks: [airflow-network]
+
   model-monitoring:
-    build: ./model_monitoring
+    build:
+      context: .
+      dockerfile: ./model_monitoring/Dockerfile
     image: model-monitoring:latest
+    profiles: ["build"]
     container_name: model-monitoring-container
     depends_on:
       mysql:

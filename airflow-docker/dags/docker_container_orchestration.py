@@ -25,6 +25,8 @@ MYSQL_PORT = 3306
 MYSQL_USER = "root"
 MYSQL_PWD = "a?xBVq1!"
 MYSQL_DB = "RawData"
+SPARK_MYSQL_USER = os.getenv("SPARK_MYSQL_USER", "spark")
+SPARK_MYSQL_PWD = os.getenv("SPARK_MYSQL_PASSWORD", "sparkpw")
 
 DOCKER_NETWORK = os.getenv("AIRFLOW_DOCKER_NETWORK", "airflow-network")
 
@@ -63,6 +65,9 @@ with DAG(
         schedule_interval=None,
         start_date=datetime(2025, 1, 1),
         catchup=False,
+        max_active_runs=1,
+        dagrun_timeout=timedelta(hours=4),
+        tags=["local", "ml", "monitoring"],
 ) as dag:
 
     mysql_ready = PythonSensor(
@@ -83,6 +88,25 @@ with DAG(
         retries=6,
         retry_delay=timedelta(seconds=30),
         log_response=True,
+    )
+
+    validate_raw_data = DockerOperator(
+        task_id="validate_raw_data",
+        image="model-monitoring:latest",
+        container_name="validate-raw-data-{{ ts_nodash }}",
+        auto_remove=True,
+        docker_url="unix:///var/run/docker.sock",
+        network_mode=DOCKER_NETWORK,
+        mount_tmp_dir=False,
+        do_xcom_push=False,
+        environment={
+            "MYSQL_HOST": MYSQL_HOST,
+            "MYSQL_USER": MYSQL_USER,
+            "MYSQL_PASSWORD": MYSQL_PWD,
+            "MYSQL_DATABASE": MYSQL_DB,
+            "MIN_RAW_ROWS": "1",
+        },
+        command="python /app/quality/validate_mysql_tables.py raw",
     )
 
     run_eda = DockerOperator(
@@ -127,8 +151,10 @@ with DAG(
         environment={
             "MYSQL_HOST": "mysql",
             "MYSQL_DATABASE": "RawData",
-            "MYSQL_USER": "spark",
-            "MYSQL_PASSWORD": "sparkpw",
+            "MYSQL_USER": SPARK_MYSQL_USER,
+            "MYSQL_PASSWORD": SPARK_MYSQL_PWD,
+            "CHURN_INACTIVE_DAYS": "1",
+            "PROCESSED_WRITE_MODE": "overwrite",
             "PYSPARK_PYTHON": "python3",
             "SPARK_DRIVER_MEMORY": "4g",
             "SPARK_EXECUTOR_MEMORY": "4g",
@@ -148,8 +174,9 @@ with DAG(
         environment={
             "MYSQL_HOST": "mysql",
             "MYSQL_DATABASE": "RawData",
-            "MYSQL_USER": "spark",
-            "MYSQL_PASSWORD": "sparkpw",
+            "MYSQL_USER": SPARK_MYSQL_USER,
+            "MYSQL_PASSWORD": SPARK_MYSQL_PWD,
+            "MODEL_PREDICTIONS_WRITE_MODE": "overwrite",
             "PYSPARK_PYTHON": "python3",
             "SPARK_DRIVER_MEMORY": "4g",
             "SPARK_EXECUTOR_MEMORY": "4g",
@@ -159,6 +186,44 @@ with DAG(
         docker_url="unix:///var/run/docker.sock",
         mount_tmp_dir=False,
         mem_limit="4g",
+    )
+
+    validate_processed_data = DockerOperator(
+        task_id="validate_processed_data",
+        image="model-monitoring:latest",
+        container_name="validate-processed-data-{{ ts_nodash }}",
+        auto_remove=True,
+        docker_url="unix:///var/run/docker.sock",
+        network_mode=DOCKER_NETWORK,
+        mount_tmp_dir=False,
+        do_xcom_push=False,
+        environment={
+            "MYSQL_HOST": MYSQL_HOST,
+            "MYSQL_USER": MYSQL_USER,
+            "MYSQL_PASSWORD": MYSQL_PWD,
+            "MYSQL_DATABASE": MYSQL_DB,
+            "MIN_PROCESSED_ROWS": "1",
+        },
+        command="python /app/quality/validate_mysql_tables.py processed",
+    )
+
+    validate_model_predictions = DockerOperator(
+        task_id="validate_model_predictions",
+        image="model-monitoring:latest",
+        container_name="validate-model-predictions-{{ ts_nodash }}",
+        auto_remove=True,
+        docker_url="unix:///var/run/docker.sock",
+        network_mode=DOCKER_NETWORK,
+        mount_tmp_dir=False,
+        do_xcom_push=False,
+        environment={
+            "MYSQL_HOST": MYSQL_HOST,
+            "MYSQL_USER": MYSQL_USER,
+            "MYSQL_PASSWORD": MYSQL_PWD,
+            "MYSQL_DATABASE": MYSQL_DB,
+            "MIN_PREDICTION_ROWS": "1",
+        },
+        command="python /app/quality/validate_mysql_tables.py predictions",
     )
 
     run_monitoring = DockerOperator(
@@ -180,4 +245,15 @@ with DAG(
         command="python /app/Model_Monitoring.py",
     )
 
-    mysql_ready >> pyspark_db_dns_check >> start_stream >> run_eda >> pyspark_analysis >> pyspark_model >> run_monitoring
+    (
+        mysql_ready
+        >> pyspark_db_dns_check
+        >> start_stream
+        >> validate_raw_data
+        >> run_eda
+        >> pyspark_analysis
+        >> validate_processed_data
+        >> pyspark_model
+        >> validate_model_predictions
+        >> run_monitoring
+    )
