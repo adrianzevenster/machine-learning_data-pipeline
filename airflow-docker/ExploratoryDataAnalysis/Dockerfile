@@ -5,19 +5,10 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
-COPY EDA.py /app/
+COPY requirements.txt /app/
 
 RUN python -m pip install --upgrade pip && \
-    pip install \
-    pandas \
-    pyarrow \
-    SQLAlchemy\
-    PyMySQL \
-    matplotlib \
-    seaborn \
-    opencv-python-headless \
-    scikit-learn \
-    mysql-connector-python
+    pip install -r requirements.txt
 
 COPY . /app
 

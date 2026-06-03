@@ -1,0 +1,9 @@
+pandas==2.2.2
+pyarrow==16.1.0
+SQLAlchemy==2.0.32
+PyMySQL==1.1.0
+matplotlib==3.9.1
+seaborn==0.13.2
+opencv-python-headless==4.10.0.84
+scikit-learn==1.5.1
+mysql-connector-python==9.0.0

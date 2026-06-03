@@ -8,6 +8,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 from pyspark.ml.functions import vector_to_array
 import json
+import os
 
 '''Spark Session Creator: cv_model'''
 spark = SparkSession.builder \
@@ -34,11 +35,11 @@ end_date = config['processed_end']
 query = f"(SELECT * FROM Processed_Data WHERE Date BETWEEN '{start_date}' AND '{end_date}') AS date_filtered_data"
 
 # Connect to the database and read filtered data
-db_url = "jdbc:mysql://flaskapp-db:3306/RawData"
+db_url = f"jdbc:mysql://{os.getenv('MYSQL_HOST', 'flaskapp-db')}:3306/{os.getenv('MYSQL_DATABASE', 'RawData')}"
 db_table = "model_predictions"
 db_properties = {
-    "user": "root",
-    "password": "a?xBVq1!",
+    "user": os.getenv("MYSQL_USER", "spark"),
+    "password": os.getenv("MYSQL_PASSWORD", "sparkpw"),
     "driver": "com.mysql.cj.jdbc.Driver"
 }
 

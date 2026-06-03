@@ -9,9 +9,10 @@ AIRFLOW_ROOT = REPO_ROOT / "airflow-docker"
 
 DAG_PATH = AIRFLOW_ROOT / "dags" / "docker_container_orchestration.py"
 COMPOSE_PATH = AIRFLOW_ROOT / "docker-compose.yml"
-SCHEMA_PATH = AIRFLOW_ROOT / "mysql" / "init" / "001_schema.sql"
+SCHEMA_PATH = AIRFLOW_ROOT / "mysql" / "migrations" / "001_create_core_tables.sql"
 CONTRACTS_PATH = AIRFLOW_ROOT / "quality" / "validate_mysql_tables.py"
 DOCKERIGNORE_PATH = AIRFLOW_ROOT / ".dockerignore"
+ENV_EXAMPLE_PATH = AIRFLOW_ROOT / ".env.example"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 
 REQUIRED_DAG_TASKS = {
@@ -33,6 +34,19 @@ EXTERNAL_IMAGES = {
 }
 
 REQUIRED_SCHEMA_COLUMNS = {
+    "DP_CDR_Data": {
+        "DP_DATE",
+        "DP_MSISDN",
+        "DP_MOC_COUNT",
+        "DP_MOC_DURATION",
+        "DP_MTC_COUNT",
+        "DP_MTC_DURATION",
+        "DP_MOSMS_COUNT",
+        "DP_MTSMS_COUNT",
+        "DP_DATA_COUNT",
+        "DP_DATA_VOLUME",
+        "PSEUDO_CHURNED",
+    },
     "Processed_Data": {
         "Date",
         "User",
@@ -45,11 +59,43 @@ REQUIRED_SCHEMA_COLUMNS = {
         "M_TENURE_CHURN",
     },
     "model_predictions": {
+        "pipeline_run_id",
+        "model_version_id",
         "label",
         "prediction",
         "probability_0",
         "probability_1",
         "Date",
+    },
+    "pipeline_runs": {
+        "run_id",
+        "dag_id",
+        "git_sha",
+        "image_tag",
+        "data_start",
+        "data_end",
+        "raw_row_count",
+        "processed_row_count",
+        "prediction_row_count",
+        "status",
+    },
+    "model_versions": {
+        "model_version_id",
+        "run_id",
+        "model_name",
+        "algorithm",
+        "parameters_json",
+        "metrics_json",
+        "artifact_uri",
+    },
+    "monitoring_reports": {
+        "report_id",
+        "pipeline_run_id",
+        "model_version_id",
+        "reference_rows",
+        "analysis_rows",
+        "metrics_path",
+        "plot_path",
     },
 }
 
@@ -67,6 +113,17 @@ REQUIRED_DOCKERIGNORE_PATTERNS = {
     "jars/",
     "**/__pycache__/",
     "**/*.py[cod]",
+}
+
+REQUIRED_ENV_EXAMPLE_KEYS = {
+    "AIRFLOW_POSTGRES_PASSWORD",
+    "AIRFLOW_ADMIN_PASSWORD",
+    "MYSQL_ROOT_PASSWORD",
+    "APP_MYSQL_USER",
+    "APP_MYSQL_PASSWORD",
+    "SPARK_MYSQL_USER",
+    "SPARK_MYSQL_PASSWORD",
+    "RAW_DATA_CSV",
 }
 
 
@@ -144,6 +201,10 @@ def assert_dag_quality_gates() -> None:
         if expected not in dag_text:
             raise AssertionError(f"DAG missing production guard: {expected}")
 
+    for expected in ("PIPELINE_RUN_ID", "MODEL_VERSION_ID", "GIT_SHA", "MODEL_ARTIFACT_URI"):
+        if expected not in dag_text:
+            raise AssertionError(f"DAG missing model versioning environment: {expected}")
+
 
 def assert_schema_matches_contracts() -> None:
     schema_text = read_text(SCHEMA_PATH)
@@ -163,11 +224,15 @@ def assert_schema_matches_contracts() -> None:
             raise AssertionError(f"{table_name} schema missing columns: {missing_schema_columns}")
 
         contract_columns = table_contracts.get(table_name)
-        if not contract_columns:
+        if table_name not in {"DP_CDR_Data", "pipeline_runs", "model_versions", "monitoring_reports"} and not contract_columns:
             raise AssertionError(f"No data-quality contract found for {table_name}")
-        missing_contract_columns = sorted(required_columns - set(contract_columns))
-        if missing_contract_columns:
-            raise AssertionError(f"{table_name} contract missing columns: {missing_contract_columns}")
+        if contract_columns:
+            missing_contract_columns = sorted(required_columns - set(contract_columns))
+            if missing_contract_columns:
+                raise AssertionError(f"{table_name} contract missing columns: {missing_contract_columns}")
+
+    if "schema_migrations" not in schema_text:
+        raise AssertionError("Schema migration ledger table is missing.")
 
 
 def assert_ignore_hygiene() -> None:
@@ -183,12 +248,50 @@ def assert_ignore_hygiene() -> None:
         raise AssertionError(f"airflow-docker/.dockerignore missing patterns: {missing_dockerignore}")
 
 
+def assert_runtime_hardening() -> None:
+    compose_text = read_text(COMPOSE_PATH)
+    dag_text = read_text(DAG_PATH)
+    flask_dockerfile = read_text(AIRFLOW_ROOT / "flaskapp" / "Dockerfile")
+    env_example_lines = read_text(ENV_EXAMPLE_PATH).splitlines()
+
+    env_keys = {line.split("=", 1)[0] for line in env_example_lines if line and not line.startswith("#")}
+    missing_env_keys = sorted(REQUIRED_ENV_EXAMPLE_KEYS - env_keys)
+    if missing_env_keys:
+        raise AssertionError(f".env.example missing required keys: {missing_env_keys}")
+
+    if "gunicorn --bind 0.0.0.0:5000" not in flask_dockerfile:
+        raise AssertionError("Flask service must run behind gunicorn in the container.")
+
+    debug_pattern = "app.run(" + "debug=True"
+    if debug_pattern in read_text(AIRFLOW_ROOT / "flaskapp" / "streamingestion.py"):
+        raise AssertionError("Flask debug mode must not be hardcoded on.")
+
+    mysql_user_assignment = "MYSQL" + '_USER = "' + 'root"'
+    for forbidden in (mysql_user_assignment,):
+        if forbidden in dag_text:
+            raise AssertionError(f"DAG contains hardcoded database credential: {forbidden}")
+
+    for required in (
+        "${MYSQL_ROOT_PASSWORD",
+        "${APP_MYSQL_USER",
+        "${APP_MYSQL_PASSWORD",
+        "${SPARK_MYSQL_USER",
+        "${SPARK_MYSQL_PASSWORD",
+    ):
+        if required not in compose_text:
+            raise AssertionError(f"Compose missing environment interpolation for {required}")
+
+    if "./mysql/migrations:/docker-entrypoint-initdb.d:ro" not in compose_text:
+        raise AssertionError("Compose must mount versioned migrations into MySQL init.")
+
+
 def main() -> int:
     checks = [
         assert_compose_images,
         assert_dag_quality_gates,
         assert_schema_matches_contracts,
         assert_ignore_hygiene,
+        assert_runtime_hardening,
     ]
 
     failures = []

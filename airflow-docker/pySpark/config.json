@@ -2,8 +2,8 @@
   "database": {
     "host": "local-mysql",
     "port": 3306,
-    "user": "root",
-    "password": "a?xBVq1!",
+    "user": "spark",
+    "password": "sparkpw",
     "db": "RawData"
   },
   "tables": {
@@ -21,4 +21,3 @@
   "io": {
     "parquet_dir": "/app/parquetFiles"
   }
-

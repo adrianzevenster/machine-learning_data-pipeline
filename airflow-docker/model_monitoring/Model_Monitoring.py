@@ -5,23 +5,31 @@ import nannyml as nml
 import pandas as pd
 import mysql.connector
 
+PIPELINE_RUN_ID = os.getenv("PIPELINE_RUN_ID")
+MODEL_VERSION_ID = os.getenv("MODEL_VERSION_ID")
+
+
+def mysql_config():
+    return {
+        "host": os.getenv("MYSQL_HOST", "mysql"),
+        "user": os.getenv("MYSQL_USER", "spark"),
+        "password": os.getenv("MYSQL_PASSWORD", "sparkpw"),
+        "database": os.getenv("MYSQL_DATABASE", "RawData"),
+    }
+
 
 def load_predictions() -> pd.DataFrame:
-    connection = mysql.connector.connect(
-        host=os.getenv("MYSQL_HOST", "mysql"),
-        user=os.getenv("MYSQL_USER", "root"),
-        password=os.getenv("MYSQL_PASSWORD", ""),
-        database=os.getenv("MYSQL_DATABASE", "RawData"),
-    )
+    connection = mysql.connector.connect(**mysql_config())
 
     query = """
-            SELECT label, prediction, probability_0, probability_1, Date
+            SELECT pipeline_run_id, model_version_id, label, prediction, probability_0, probability_1, Date
             FROM model_predictions
             WHERE Date IS NOT NULL
+              AND (%s IS NULL OR pipeline_run_id = %s)
             ORDER BY Date \
             """
 
-    df = pd.read_sql(query, connection)
+    df = pd.read_sql(query, connection, params=(PIPELINE_RUN_ID, PIPELINE_RUN_ID))
     connection.close()
 
     if df.empty:
@@ -34,6 +42,41 @@ def load_predictions() -> pd.DataFrame:
         raise ValueError("No valid rows remained after cleaning.")
 
     return df
+
+
+def write_monitoring_report(reference_rows: int, analysis_rows: int, csv_path: Path, plot_path: Path) -> None:
+    if not PIPELINE_RUN_ID:
+        print("PIPELINE_RUN_ID is not set; skipping monitoring_reports metadata write.")
+        return
+
+    connection = mysql.connector.connect(**mysql_config())
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        INSERT INTO monitoring_reports (
+            pipeline_run_id, model_version_id, reference_rows, analysis_rows, metrics_path, plot_path
+        )
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (
+            PIPELINE_RUN_ID,
+            MODEL_VERSION_ID,
+            reference_rows,
+            analysis_rows,
+            str(csv_path),
+            str(plot_path),
+        ),
+    )
+    cursor.execute(
+        """
+        UPDATE pipeline_runs
+        SET status = %s
+        WHERE run_id = %s
+        """,
+        ("monitoring_completed", PIPELINE_RUN_ID),
+    )
+    connection.commit()
+    connection.close()
 
 
 def split_reference_analysis(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -72,7 +115,8 @@ def split_with_class_coverage(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFr
 
 
 def run_monitoring_job() -> None:
-    output_dir = Path("/app/output")
+    run_output = PIPELINE_RUN_ID or "manual"
+    output_dir = Path("/app/output") / "monitoring" / run_output
     output_dir.mkdir(parents=True, exist_ok=True)
 
     predictions_df = load_predictions()
@@ -117,6 +161,7 @@ def run_monitoring_job() -> None:
     figure = results.plot()
     figure.write_image(str(plot_path))
     results.to_df().to_csv(csv_path, index=False)
+    write_monitoring_report(len(reference_df), len(analysis_df), csv_path, plot_path)
 
     print(f"Monitoring completed successfully.")
     print(f"Plot saved to: {plot_path}")
