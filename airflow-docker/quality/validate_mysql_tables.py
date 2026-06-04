@@ -12,6 +12,12 @@ TABLE_CONTRACTS = {
             "id",
             "DP_DATE",
             "DP_MSISDN",
+            "DP_MOC_COUNT",
+            "DP_MOC_DURATION",
+            "DP_MTC_COUNT",
+            "DP_MTC_DURATION",
+            "DP_MOSMS_COUNT",
+            "DP_MTSMS_COUNT",
             "DP_DATA_COUNT",
             "DP_DATA_VOLUME",
             "PSEUDO_CHURNED",
@@ -44,6 +50,8 @@ TABLE_CONTRACTS = {
     "predictions": {
         "table": "model_predictions",
         "required_columns": {
+            "pipeline_run_id",
+            "model_version_id",
             "label",
             "prediction",
             "probability_0",
@@ -55,6 +63,7 @@ TABLE_CONTRACTS = {
         "min_labels": 2,
         "label_column": "label",
         "date_column": "Date",
+        "run_id_column": "pipeline_run_id",
     },
 }
 
@@ -62,8 +71,8 @@ TABLE_CONTRACTS = {
 def connect():
     return mysql.connector.connect(
         host=os.getenv("MYSQL_HOST", "mysql"),
-        user=os.getenv("MYSQL_USER", "root"),
-        password=os.getenv("MYSQL_PASSWORD", ""),
+        user=os.getenv("MYSQL_USER", "spark"),
+        password=os.getenv("MYSQL_PASSWORD", "sparkpw"),
         database=os.getenv("MYSQL_DATABASE", "RawData"),
     )
 
@@ -126,6 +135,41 @@ def validate_table(contract_name):
                     f"{table}.{label_column} has {distinct_labels} distinct labels; "
                     f"expected at least {contract['min_labels']}."
                 )
+
+        run_id_column = contract.get("run_id_column")
+        pipeline_run_id = os.getenv("PIPELINE_RUN_ID")
+        if run_id_column:
+            null_run_ids = fetch_one(cursor, f"SELECT COUNT(*) FROM {table} WHERE `{run_id_column}` IS NULL")[0]
+            if null_run_ids:
+                raise RuntimeError(f"{table}.{run_id_column} contains {null_run_ids} NULL values.")
+
+        if contract_name == "predictions" and pipeline_run_id:
+            run_prediction_count = fetch_one(
+                cursor,
+                "SELECT COUNT(*) FROM model_predictions WHERE pipeline_run_id = %s",
+                (pipeline_run_id,),
+            )[0]
+            if run_prediction_count < min_rows:
+                raise RuntimeError(
+                    f"model_predictions has {run_prediction_count} rows for run {pipeline_run_id}; "
+                    f"expected at least {min_rows}."
+                )
+
+            model_version_count = fetch_one(
+                cursor,
+                "SELECT COUNT(*) FROM model_versions WHERE run_id = %s",
+                (pipeline_run_id,),
+            )[0]
+            if model_version_count < 1:
+                raise RuntimeError(f"No model_versions row found for run {pipeline_run_id}.")
+
+            pipeline_run_count = fetch_one(
+                cursor,
+                "SELECT COUNT(*) FROM pipeline_runs WHERE run_id = %s",
+                (pipeline_run_id,),
+            )[0]
+            if pipeline_run_count < 1:
+                raise RuntimeError(f"No pipeline_runs row found for run {pipeline_run_id}.")
 
         print(
             f"[quality] {table}: rows={row_count}"

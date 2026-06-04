@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   flaskapp-app:
     build: .
@@ -7,30 +5,32 @@ services:
       - "5000:5000"
     environment:
       - DB_HOST=flaskapp-db
-      - DB_USER=root
-      - DB_PASSWORD=a?xBVq1!
-      - DB_NAME=RawData
-      - DATABASE_URL=mysql+pymysql://root:a?xBVq1!@flaskapp-db:3306/RawData
+      - DB_USER=${APP_MYSQL_USER:-spark}
+      - DB_PASSWORD=${APP_MYSQL_PASSWORD:-sparkpw}
+      - DB_NAME=${MYSQL_DATABASE:-RawData}
+      - DATABASE_URL=mysql+pymysql://${APP_MYSQL_USER:-spark}:${APP_MYSQL_PASSWORD:-sparkpw}@flaskapp-db:3306/${MYSQL_DATABASE:-RawData}
     depends_on:
       flaskapp-db:
         condition: service_healthy
-    command: ["sh", "-c", "python DataBase.py && python streamingestion.py"]
+    command: ["sh", "-c", "python DataBase.py && gunicorn --bind 0.0.0.0:5000 --workers ${GUNICORN_WORKERS:-2} --threads ${GUNICORN_THREADS:-4} --timeout ${GUNICORN_TIMEOUT:-120} streamingestion:app"]
     networks:
       - shared-network
 
   flaskapp-db:
     image: mysql:8.0
     environment:
-      MYSQL_ROOT_PASSWORD: a?xBVq1!
-      MYSQL_DATABASE: RawData
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-RawData}
+      MYSQL_USER: ${APP_MYSQL_USER:-spark}
+      MYSQL_PASSWORD: ${APP_MYSQL_PASSWORD:-sparkpw}
     ports:
-      - "3307:3307"
+      - "3307:3306"
     volumes:
-      - ./init-scripts:/docker-entrypoint-initdb.d
+      - ../airflow-docker/mysql/migrations:/docker-entrypoint-initdb.d:ro
     networks:
       - shared-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p'a?xBVq1!'"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -44,14 +44,13 @@ networks:
 
 
 
-#version: '3'
 #services:
 #  app:
 #    build: .
 #    ports:
 #      - "5000:5000"
 #    environment:
-#      - DATABASE_URL=mysql+pymysql://root:a?xBVq1!@db:3306/RawData
+#      - DATABASE_URL=mysql+pymysql://${APP_MYSQL_USER:-spark}:${APP_MYSQL_PASSWORD:-sparkpw}@db:3306/${MYSQL_DATABASE:-RawData}
 #    depends_on:
 #      - db
 #    networks:
@@ -60,7 +59,7 @@ networks:
 #  db:
 #    image: mysql:8.0
 #    environment:
-#      MYSQL_ROOT_PASSWORD: a?xBVq1!
+#      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me}
 #      MYSQL_DATABASE: RawData
 #    ports:
 #      - "3306:3306"

@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from main import execute_sql_query
 import time
 from sqlalchemy import create_engine
-from sqlalchemy.exc import OperationalError
 import threading
 import logging
 
@@ -85,4 +84,4 @@ def start_stream():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
+    app.run(debug=os.getenv("FLASK_DEBUG", "false").lower() == "true", host='0.0.0.0', port=5000, threaded=True)

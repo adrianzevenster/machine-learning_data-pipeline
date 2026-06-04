@@ -1,13 +1,14 @@
 import time
 import requests
 import mysql.connector
+import os
 
 def check_for_updates(last_check):
     connection = mysql.connector.connect(
-        host='flaskapp-flaskapp-db-1',
-        user='root',
-        password='a?xBVq1!',
-        database='RawData'
+        host=os.getenv("MYSQL_HOST", "flaskapp-flaskapp-db-1"),
+        user=os.getenv("MYSQL_USER", "spark"),
+        password=os.getenv("MYSQL_PASSWORD", "sparkpw"),
+        database=os.getenv("MYSQL_DATABASE", "RawData"),
     )
     cursor = connection.cursor()
     cursor.execute("SELECT MAX(Date) FROM model_predictions")

@@ -1,12 +1,13 @@
 import mysql.connector
 import pandas as pd
+import os
 
 
 def execute_sql_query(query, database_name):
     db_config = {
-        "host": "flaskapp-flaskapp-db-1",  # Database hostname
-        "user": "root",  # Database username
-        "password": "a?xBVq1!",  # Database password
+        "host": os.getenv("MYSQL_HOST", "flaskapp-flaskapp-db-1"),
+        "user": os.getenv("MYSQL_USER", "spark"),
+        "password": os.getenv("MYSQL_PASSWORD", "sparkpw"),
         "database": database_name  # Database name
     }
 

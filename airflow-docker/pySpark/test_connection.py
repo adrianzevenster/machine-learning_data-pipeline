@@ -6,6 +6,7 @@ Run this inside the Docker container to test connectivity
 
 from pyspark.sql import SparkSession
 import sys
+import os
 
 def test_mysql_connection():
     print("="*60)
@@ -18,10 +19,12 @@ def test_mysql_connection():
         .getOrCreate()
 
     # Connection parameters
-    jdbc_url = "jdbc:mysql://local-mysql:3306/RawData?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+    mysql_host = os.getenv("MYSQL_HOST", "local-mysql")
+    mysql_db = os.getenv("MYSQL_DATABASE", "RawData")
+    jdbc_url = f"jdbc:mysql://{mysql_host}:3306/{mysql_db}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
     props = {
-        "user": "root",
-        "password": "a?xBVq1!",
+        "user": os.getenv("MYSQL_USER", "spark"),
+        "password": os.getenv("MYSQL_PASSWORD", "sparkpw"),
         "driver": "com.mysql.cj.jdbc.Driver"
     }
 

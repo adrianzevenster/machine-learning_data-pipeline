@@ -7,11 +7,14 @@ from datetime import datetime, timedelta
 from main import execute_sql_query
 import time
 from sqlalchemy import create_engine
-from sqlalchemy.exc import OperationalError
 import threading
 import logging
+from request_validation import parse_positive_int
 
 app = Flask(__name__)
+MAX_BATCH_SIZE = int(os.getenv("MAX_STREAM_BATCH_SIZE", "10000"))
+MAX_NUM_BATCHES = int(os.getenv("MAX_STREAM_NUM_BATCHES", "1000"))
+MAX_INTERVAL_SECONDS = int(os.getenv("MAX_STREAM_INTERVAL_SECONDS", "3600"))
 
 def create_random_batches_with_randomized_timestamps(df, batch_size, num_batches):
     for i in range(num_batches):
@@ -46,7 +49,8 @@ def stream_data(df, batch_size=1000, num_batches=10, interval=60):
 def insert_into_database(df, table_name):
     try:
         database_url = os.getenv('DATABASE_URL')
-        logging.debug(f"Database URL: {database_url}")
+        if not database_url:
+            raise ValueError("DATABASE_URL is not configured.")
         engine = create_engine(database_url)
         df = df.where(pd.notnull(df), None)
         logging.debug(f"Inserting into table {table_name}. DataFrame preview:\n{df.head()}")
@@ -64,6 +68,7 @@ stream_thread = None
 def start_stream():
     global stream_thread
     try:
+        payload = request.get_json(silent=True) or {}
         if stream_thread and stream_thread.is_alive():
             return jsonify({"message": "A streaming process is already running"}), 409
 
@@ -71,18 +76,21 @@ def start_stream():
         df = execute_sql_query(query="SELECT * FROM DP_CDR_Data LIMIT 10000", database_name="RawData")
         logging.debug(f"DataFrame fetched: {df.head()}")
 
-        batch_size = request.json.get('batch_size', 1000)
-        num_batches = request.json.get('num_batches', 10)
-        interval = request.json.get('interval', 60)
+        batch_size = parse_positive_int(payload, "batch_size", 1000, MAX_BATCH_SIZE)
+        num_batches = parse_positive_int(payload, "num_batches", 10, MAX_NUM_BATCHES)
+        interval = parse_positive_int(payload, "interval", 60, MAX_INTERVAL_SECONDS)
 
         logging.debug(f"Streaming config: batch_size={batch_size}, num_batches={num_batches}, interval={interval}")
         stream_thread = threading.Thread(target=stream_data, args=(df, batch_size, num_batches, interval))
         stream_thread.start()
         logging.debug("Background thread started.")
         return jsonify({"message": "Streaming started"}), 200
+    except ValueError as e:
+        logging.warning(f"Invalid stream request: {str(e)}")
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         logging.error(f"Error occurred: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
+    app.run(debug=os.getenv("FLASK_DEBUG", "false").lower() == "true", host='0.0.0.0', port=5000, threaded=True)

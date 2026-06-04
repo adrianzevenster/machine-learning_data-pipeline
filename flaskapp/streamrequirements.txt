@@ -8,6 +8,7 @@ Flask==3.0.3
 Flask-MySQL==1.5.2
 fonttools==4.53.1
 greenlet==3.0.3
+gunicorn==22.0.0
 idna==3.7
 itsdangerous==2.2.0
 Jinja2==3.1.3
