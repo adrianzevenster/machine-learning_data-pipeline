@@ -44,6 +44,43 @@ def load_predictions() -> pd.DataFrame:
     return df
 
 
+def ensure_monitoring_schema(cursor) -> None:
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pipeline_runs (
+            run_id VARCHAR(250) PRIMARY KEY,
+            dag_id VARCHAR(250),
+            git_sha VARCHAR(64),
+            image_tag VARCHAR(250),
+            data_start DATE,
+            data_end DATE,
+            raw_row_count BIGINT,
+            processed_row_count BIGINT,
+            prediction_row_count BIGINT,
+            status VARCHAR(32) NOT NULL DEFAULT 'started',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS monitoring_reports (
+            report_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            pipeline_run_id VARCHAR(250) NOT NULL,
+            model_version_id VARCHAR(250),
+            reference_rows BIGINT NOT NULL,
+            analysis_rows BIGINT NOT NULL,
+            metrics_path VARCHAR(512),
+            plot_path VARCHAR(512),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_monitoring_reports_run (pipeline_run_id),
+            INDEX idx_monitoring_reports_model_version (model_version_id)
+        )
+        """
+    )
+
+
 def write_monitoring_report(reference_rows: int, analysis_rows: int, csv_path: Path, plot_path: Path) -> None:
     if not PIPELINE_RUN_ID:
         print("PIPELINE_RUN_ID is not set; skipping monitoring_reports metadata write.")
@@ -51,6 +88,7 @@ def write_monitoring_report(reference_rows: int, analysis_rows: int, csv_path: P
 
     connection = mysql.connector.connect(**mysql_config())
     cursor = connection.cursor()
+    ensure_monitoring_schema(cursor)
     cursor.execute(
         """
         INSERT INTO monitoring_reports (

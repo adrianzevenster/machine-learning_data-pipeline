@@ -16,9 +16,11 @@ ENV_EXAMPLE_PATH = AIRFLOW_ROOT / ".env.example"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 
 REQUIRED_DAG_TASKS = {
+    "run_mysql_migrations",
     "validate_raw_data",
     "validate_processed_data",
     "validate_model_predictions",
+    "promote_model",
     "run_monitoring",
 }
 
@@ -27,6 +29,8 @@ REQUIRED_IMAGES = {
     "python-app:latest",
     "pyspark-app:latest",
     "model-monitoring:latest",
+    "mlflow-tracking:latest",
+    "serving-app:latest",
 }
 
 EXTERNAL_IMAGES = {
@@ -87,6 +91,21 @@ REQUIRED_SCHEMA_COLUMNS = {
         "parameters_json",
         "metrics_json",
         "artifact_uri",
+        "mlflow_run_id",
+        "mlflow_model_uri",
+        "promotion_status",
+        "promotion_stage",
+        "promotion_reason",
+        "promoted_at",
+    },
+    "model_deployments": {
+        "model_name",
+        "stage",
+        "model_version_id",
+        "mlflow_run_id",
+        "mlflow_model_uri",
+        "promoted_by_run_id",
+        "promoted_at",
     },
     "monitoring_reports": {
         "report_id",
@@ -116,6 +135,7 @@ REQUIRED_DOCKERIGNORE_PATTERNS = {
 }
 
 REQUIRED_ENV_EXAMPLE_KEYS = {
+    "SERVING_HOST_PORT",
     "AIRFLOW_POSTGRES_PASSWORD",
     "AIRFLOW_ADMIN_PASSWORD",
     "MYSQL_ROOT_PASSWORD",
@@ -124,6 +144,16 @@ REQUIRED_ENV_EXAMPLE_KEYS = {
     "SPARK_MYSQL_USER",
     "SPARK_MYSQL_PASSWORD",
     "RAW_DATA_CSV",
+    "MLFLOW_HOST_PORT",
+    "MLFLOW_EXPERIMENT_NAME",
+    "MLFLOW_REGISTERED_MODEL_NAME",
+    "MODEL_PROMOTION_STAGE",
+    "MIN_MODEL_AUC",
+    "MIN_PROMOTION_PREDICTION_ROWS",
+    "AIRFLOW_WEBSERVER_SECRET_KEY",
+    "MODEL_TRAINING_MAX_ROWS",
+    "MODEL_CV_FOLDS",
+    "SPARK_SQL_SHUFFLE_PARTITIONS",
 }
 
 
@@ -173,7 +203,7 @@ def assert_compose_images() -> None:
     if missing_dag_images:
         raise AssertionError(f"DAG references images not defined in compose: {missing_dag_images}")
 
-    for service in ("python-app", "pyspark-app", "model-monitoring", "custom-airflow"):
+    for service in ("python-app", "pyspark-app", "model-monitoring", "custom-airflow", "serving-app"):
         service_block = re.search(rf"^\s{{2}}{service}:\n(.*?)(?=^\s{{2}}\S|\Z)", compose_text, re.DOTALL | re.MULTILINE)
         if not service_block or 'profiles: ["build"]' not in service_block.group(1):
             raise AssertionError(f"{service} must stay behind the build profile.")
@@ -186,11 +216,13 @@ def assert_dag_quality_gates() -> None:
         raise AssertionError(f"DAG is missing quality/monitoring tasks: {missing_tasks}")
 
     required_order = (
+        "run_mysql_migrations",
         "validate_raw_data",
         "pyspark_analysis",
         "validate_processed_data",
         "pyspark_model",
         "validate_model_predictions",
+        "promote_model",
         "run_monitoring",
     )
     positions = [dag_text.rfind(task) for task in required_order]
@@ -201,7 +233,21 @@ def assert_dag_quality_gates() -> None:
         if expected not in dag_text:
             raise AssertionError(f"DAG missing production guard: {expected}")
 
-    for expected in ("PIPELINE_RUN_ID", "MODEL_VERSION_ID", "GIT_SHA", "MODEL_ARTIFACT_URI"):
+    for expected in (
+        "PIPELINE_RUN_ID",
+        "MODEL_VERSION_ID",
+        "GIT_SHA",
+        "MODEL_ARTIFACT_URI",
+        "MLFLOW_TRACKING_URI",
+        "MLFLOW_REGISTRY_URI",
+        "MLFLOW_EXPERIMENT_NAME",
+        "MLFLOW_REGISTERED_MODEL_NAME",
+        "MODEL_PROMOTION_STAGE",
+        "MIN_MODEL_AUC",
+        "MIN_PROMOTION_PREDICTION_ROWS",
+        "MODEL_TRAINING_MAX_ROWS",
+        "MODEL_CV_FOLDS",
+    ):
         if expected not in dag_text:
             raise AssertionError(f"DAG missing model versioning environment: {expected}")
 
@@ -224,7 +270,13 @@ def assert_schema_matches_contracts() -> None:
             raise AssertionError(f"{table_name} schema missing columns: {missing_schema_columns}")
 
         contract_columns = table_contracts.get(table_name)
-        if table_name not in {"DP_CDR_Data", "pipeline_runs", "model_versions", "monitoring_reports"} and not contract_columns:
+        if table_name not in {
+            "DP_CDR_Data",
+            "pipeline_runs",
+            "model_versions",
+            "model_deployments",
+            "monitoring_reports",
+        } and not contract_columns:
             raise AssertionError(f"No data-quality contract found for {table_name}")
         if contract_columns:
             missing_contract_columns = sorted(required_columns - set(contract_columns))
@@ -252,6 +304,8 @@ def assert_runtime_hardening() -> None:
     compose_text = read_text(COMPOSE_PATH)
     dag_text = read_text(DAG_PATH)
     flask_dockerfile = read_text(AIRFLOW_ROOT / "flaskapp" / "Dockerfile")
+    monitoring_dockerfile = read_text(AIRFLOW_ROOT / "model_monitoring" / "Dockerfile")
+    monitoring_requirements = read_text(AIRFLOW_ROOT / "model_monitoring" / "requirements.txt")
     env_example_lines = read_text(ENV_EXAMPLE_PATH).splitlines()
 
     env_keys = {line.split("=", 1)[0] for line in env_example_lines if line and not line.startswith("#")}
@@ -261,6 +315,21 @@ def assert_runtime_hardening() -> None:
 
     if "gunicorn --bind 0.0.0.0:5000" not in flask_dockerfile:
         raise AssertionError("Flask service must run behind gunicorn in the container.")
+
+    if "promote_model.py" not in monitoring_dockerfile:
+        raise AssertionError("Monitoring image must include the model promotion command.")
+
+    if "COPY quality" not in monitoring_dockerfile or "mysql/migrations" not in monitoring_dockerfile:
+        raise AssertionError("Monitoring image must include MySQL migration runner and SQL migrations.")
+
+    if "mlflow==" not in monitoring_requirements:
+        raise AssertionError("Monitoring image must include the MLflow client dependency.")
+
+    serving_requirements = read_text(AIRFLOW_ROOT / "serving" / "requirements.txt")
+    if "uvicorn" not in serving_requirements:
+        raise AssertionError("Serving image must use uvicorn as the ASGI server.")
+    if "mlflow==" not in serving_requirements:
+        raise AssertionError("Serving image must include the MLflow client dependency.")
 
     debug_pattern = "app.run(" + "debug=True"
     if debug_pattern in read_text(AIRFLOW_ROOT / "flaskapp" / "streamingestion.py"):
@@ -283,6 +352,9 @@ def assert_runtime_hardening() -> None:
 
     if "./mysql/migrations:/docker-entrypoint-initdb.d:ro" not in compose_text:
         raise AssertionError("Compose must mount versioned migrations into MySQL init.")
+
+    if "AIRFLOW__WEBSERVER__SECRET_KEY" not in compose_text:
+        raise AssertionError("Airflow services must share a stable webserver secret key for log serving.")
 
 
 def main() -> int:

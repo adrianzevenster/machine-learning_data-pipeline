@@ -1,0 +1,137 @@
+# DVC pipeline — runs alongside the Airflow DAG for local experimentation.
+#
+# Prerequisites:
+#   1. pip install dvc
+#   2. docker compose -f airflow-docker/docker-compose.yml up -d mysql mlflow flaskapp
+#   3. make build-images
+#   4. dvc repro          (or: make dvc-repro)
+#
+# Parameters come from params.yaml.  Override any via environment variables
+# before calling dvc repro — the scripts honour ${VAR:-default} fallbacks.
+# Airflow continues to read its own parameters via env vars; params.yaml is
+# the shared source of truth for defaults in both execution paths.
+
+vars:
+  - params.yaml
+
+stages:
+
+  # ── 1. Ingest ─────────────────────────────────────────────────────────────
+  # Loads RawData.csv into MySQL DP_CDR_Data.
+  # Re-runs when the source CSV or DataBase.py changes.
+  ingest:
+    cmd: bash dvc/stages/ingest.sh
+    deps:
+      - airflow-docker/flaskapp/RawData.csv
+      - airflow-docker/flaskapp/DataBase.py
+      - dvc/stages/ingest.sh
+    outs:
+      - data/raw/.ingest_done
+
+  # ── 2. EDA ────────────────────────────────────────────────────────────────
+  # Exploratory analysis; outputs CSVs/plots to data/eda/.
+  eda:
+    cmd: bash dvc/stages/eda.sh
+    deps:
+      - data/raw/.ingest_done
+      - airflow-docker/ExploratoryDataAnalysis/EDA.py
+      - dvc/stages/eda.sh
+    outs:
+      - data/eda/:
+          cache: false
+          persist: true
+
+  # ── 3. Feature engineering ────────────────────────────────────────────────
+  # PySpark aggregation; writes processed features to MySQL Processed_Data.
+  feature_engineering:
+    cmd: |
+      export SPARK_DRIVER_MEMORY=${pyspark.driver_memory}
+      export SPARK_EXECUTOR_MEMORY=${pyspark.executor_memory}
+      export SPARK_SQL_SHUFFLE_PARTITIONS=${pyspark.shuffle_partitions}
+      export CHURN_INACTIVE_DAYS=${pyspark.churn_inactive_days}
+      bash dvc/stages/feature_engineering.sh
+    params:
+      - pyspark.driver_memory
+      - pyspark.executor_memory
+      - pyspark.shuffle_partitions
+      - pyspark.churn_inactive_days
+    deps:
+      - data/raw/.ingest_done
+      - airflow-docker/pySpark/PySparkAnalysis.py
+      - dvc/stages/feature_engineering.sh
+    outs:
+      - data/processed/.features_done
+
+  # ── 4. Train ──────────────────────────────────────────────────────────────
+  # Trains RandomForest, registers to MLflow, writes predictions to MySQL.
+  # Model artifact → models/current/ (DVC-cached).
+  # metrics/train_metrics.json  → tracked by DVC for dvc metrics show/diff.
+  # metrics/run_ids.env         → carries PIPELINE_RUN_ID forward to promote/monitor.
+  train:
+    cmd: |
+      export MODEL_TRAINING_MAX_ROWS=${model.training_max_rows}
+      export MODEL_CV_FOLDS=${model.cv_folds}
+      export MODEL_NUM_TREES=${model.num_trees}
+      export MODEL_MAX_DEPTH=${model.max_depth}
+      export SPARK_SQL_SHUFFLE_PARTITIONS=${pyspark.shuffle_partitions}
+      export SPARK_DRIVER_MEMORY=${pyspark.driver_memory}
+      export SPARK_EXECUTOR_MEMORY=${pyspark.executor_memory}
+      export MLFLOW_EXPERIMENT_NAME=${pipeline.experiment_name}
+      export MLFLOW_REGISTERED_MODEL_NAME=${pipeline.registered_model_name}
+      export MODEL_PREDICTIONS_WRITE_MODE=${pipeline.predictions_write_mode}
+      bash dvc/stages/train.sh
+    params:
+      - model.training_max_rows
+      - model.cv_folds
+      - model.num_trees
+      - model.max_depth
+      - pyspark.shuffle_partitions
+      - pyspark.driver_memory
+      - pyspark.executor_memory
+      - pipeline.experiment_name
+      - pipeline.registered_model_name
+      - pipeline.predictions_write_mode
+    deps:
+      - data/processed/.features_done
+      - airflow-docker/pySpark/pySparkModel.py
+      - dvc/stages/train.sh
+    outs:
+      - models/current/:
+          cache: false
+          persist: true
+    metrics:
+      - metrics/train_metrics.json:
+          cache: false
+
+  # ── 5. Promote ────────────────────────────────────────────────────────────
+  # Checks AUC / prediction-row thresholds and promotes the MLflow model
+  # version to the Production stage.
+  promote:
+    cmd: |
+      export MLFLOW_REGISTERED_MODEL_NAME=${pipeline.registered_model_name}
+      export MODEL_PROMOTION_STAGE=${pipeline.promotion_stage}
+      export MIN_MODEL_AUC=${model.min_auc}
+      export MIN_PROMOTION_PREDICTION_ROWS=${model.min_promotion_prediction_rows}
+      bash dvc/stages/promote.sh
+    params:
+      - model.min_auc
+      - model.min_promotion_prediction_rows
+      - pipeline.promotion_stage
+      - pipeline.registered_model_name
+    deps:
+      - metrics/train_metrics.json
+      - airflow-docker/model_monitoring/promote_model.py
+      - dvc/stages/promote.sh
+
+  # ── 6. Monitor ────────────────────────────────────────────────────────────
+  # Runs NannyML performance monitoring; report written to data/monitoring/.
+  monitor:
+    cmd: bash dvc/stages/monitor.sh
+    deps:
+      - metrics/train_metrics.json
+      - airflow-docker/model_monitoring/Model_Monitoring.py
+      - dvc/stages/monitor.sh
+    outs:
+      - data/monitoring/:
+          cache: false
+          persist: true

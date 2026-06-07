@@ -2,7 +2,8 @@ PYTHON ?= python3
 PYTEST ?= $(PYTHON) -m pytest
 COMPOSE_FILE := airflow-docker/docker-compose.yml
 
-.PHONY: quality compile compose-check static-contracts secret-patterns test build-images
+.PHONY: quality compile compose-check static-contracts secret-patterns test build-images \
+        dvc-repro dvc-status dvc-metrics dvc-params-diff
 
 quality: compile compose-check static-contracts secret-patterns test
 
@@ -19,7 +20,8 @@ compile:
 		airflow-docker/quality/check_static_contracts.py \
 		airflow-docker/quality/validate_mysql_tables.py \
 		airflow-docker/pySpark/PySparkAnalysis.py \
-		airflow-docker/pySpark/pySparkModel.py
+		airflow-docker/pySpark/pySparkModel.py \
+		airflow-docker/serving/main.py
 
 compose-check:
 	docker compose --profile build -f $(COMPOSE_FILE) config --quiet
@@ -39,4 +41,22 @@ build-images:
 		flaskapp \
 		python-app \
 		pyspark-app \
-		model-monitoring
+		model-monitoring \
+		mlflow \
+		serving-app
+
+# ── DVC targets ──────────────────────────────────────────────────────────────
+# Requires: pip install dvc  and  docker compose up -d mysql mlflow flaskapp
+
+dvc-repro:
+	dvc repro
+
+dvc-status:
+	dvc status
+
+# Show metrics for the current run and compare to the previous commit
+dvc-metrics:
+	dvc metrics show --md
+
+dvc-params-diff:
+	dvc params diff
