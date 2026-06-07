@@ -4,8 +4,13 @@ import matplotlib.pyplot as plt
 from sqlalchemy import create_engine
 import io
 import base64
+import os
 
 app = Flask(__name__)
+
+
+def database_url():
+    return os.getenv("DATABASE_URL", "mysql+pymysql://spark:sparkpw@localhost:3306/RawData")
 
 
 def fetch_data():
@@ -32,7 +37,7 @@ def create_random_batches_with_randomized_timestamps(df, batch_size, num_batches
 
 
 def insert_into_database(df):
-    engine = create_engine('mysql+pymysql://root:a?xBVq1!@localhost:3306/RawData')
+    engine = create_engine(database_url())
     df.to_sql('DP_CDR_Data', engine, index=False, if_exists='append')
 
 
@@ -49,7 +54,7 @@ def generate_and_save_chart(df, batch_number):
     img_data = base64.b64encode(img.read()).decode('utf-8')
     plt.close()
 
-    engine = create_engine('mysql+pymysql://root:a?xBVq1!@localhost:3306/RawData')
+    engine = create_engine(database_url())
     connection = engine.connect()
     connection.execute(f"INSERT INTO chart_storage (batch_number, chart_image) VALUES ({batch_number}, '{img_data}')")
     connection.close()
@@ -57,7 +62,7 @@ def generate_and_save_chart(df, batch_number):
 
 @app.route('/data', methods=['GET'])
 def get_data():
-    engine = create_engine('mysql+pymysql://root:a?xBVq1!@localhost:3306/RawData')
+    engine = create_engine(database_url())
     query = "SELECT * FROM DP_CDR_Data ORDER BY DP_DATE DESC LIMIT 100"
     df = pd.read_sql(query, engine)
     return df.to_json(orient='records')
@@ -65,7 +70,7 @@ def get_data():
 
 @app.route('/chart/<int:batch_number>', methods=['GET'])
 def get_chart(batch_number):
-    engine = create_engine('mysql+pymysql://root:a?xBVq1!@localhost:3306/RawData')
+    engine = create_engine(database_url())
     query = f"SELECT chart_image FROM chart_storage WHERE batch_number = {batch_number}"
     result = engine.execute(query).fetchone()
 
@@ -83,4 +88,4 @@ def index():
 
 if __name__ == "__main__":
 
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=os.getenv("FLASK_DEBUG", "false").lower() == "true", host='0.0.0.0', port=5001)

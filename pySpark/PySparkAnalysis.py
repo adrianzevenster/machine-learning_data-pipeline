@@ -93,10 +93,13 @@ class MYSQLDataProcessor:
 
 # Initialize processor
 app_name = "MySQL PySpark DataProcessor"
-jdbc_url = "jdbc:mysql://flaskapp-db:3306/RawData?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+jdbc_url = (
+    f"jdbc:mysql://{os.getenv('MYSQL_HOST', 'flaskapp-db')}:3306/"
+    f"{os.getenv('MYSQL_DATABASE', 'RawData')}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+)
 jdbc_driver_path = '/opt/spark/jars/mysql-connector-java-8.0.25.jar'
-user = "root"
-password = "a?xBVq1!"
+user = os.getenv("MYSQL_USER", "spark")
+password = os.getenv("MYSQL_PASSWORD", "sparkpw")
 
 if not os.path.isfile(jdbc_driver_path):
     raise FileNotFoundError(f"The JDBC driver jar file was not found at: {jdbc_driver_path}")

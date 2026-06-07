@@ -2,12 +2,69 @@ import os
 import mysql.connector
 import pandas as pd
 
+RAW_COLUMNS = [
+    "DP_DATE",
+    "DP_MSISDN",
+    "DP_MOC_COUNT",
+    "DP_MOC_DURATION",
+    "DP_MTC_COUNT",
+    "DP_MTC_DURATION",
+    "DP_MOSMS_COUNT",
+    "DP_MTSMS_COUNT",
+    "DP_DATA_COUNT",
+    "DP_DATA_VOLUME",
+    "PSEUDO_CHURNED",
+]
+
+INTEGER_COLUMNS = [
+    "DP_MOC_COUNT",
+    "DP_MTC_COUNT",
+    "DP_MOSMS_COUNT",
+    "DP_MTSMS_COUNT",
+    "DP_DATA_COUNT",
+    "PSEUDO_CHURNED",
+]
+
+FLOAT_COLUMNS = [
+    "DP_MOC_DURATION",
+    "DP_MTC_DURATION",
+    "DP_DATA_VOLUME",
+]
+
 db_config = {
     "host": os.getenv("DB_HOST", "mysql"),
-    "user": os.getenv("DB_USER", "root"),
-    "password": os.getenv("DB_PASSWORD", ""),
+    "user": os.getenv("DB_USER", "spark"),
+    "password": os.getenv("DB_PASSWORD", "sparkpw"),
     "database": os.getenv("DB_NAME", "RawData")
 }
+
+
+def get_connection():
+    return mysql.connector.connect(**db_config)
+
+
+def ensure_raw_table(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS DP_CDR_Data (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            DP_DATE DATETIME NOT NULL,
+            DP_MSISDN VARCHAR(64) NOT NULL,
+            DP_MOC_COUNT INT NOT NULL DEFAULT 0,
+            DP_MOC_DURATION DOUBLE NOT NULL DEFAULT 0,
+            DP_MTC_COUNT INT NOT NULL DEFAULT 0,
+            DP_MTC_DURATION DOUBLE NOT NULL DEFAULT 0,
+            DP_MOSMS_COUNT INT NOT NULL DEFAULT 0,
+            DP_MTSMS_COUNT INT NOT NULL DEFAULT 0,
+            DP_DATA_COUNT INT NOT NULL DEFAULT 0,
+            DP_DATA_VOLUME DOUBLE NOT NULL DEFAULT 0,
+            PSEUDO_CHURNED INT NOT NULL,
+            INDEX idx_raw_date (DP_DATE),
+            INDEX idx_raw_msisdn_date (DP_MSISDN, DP_DATE),
+            INDEX idx_raw_label (PSEUDO_CHURNED)
+        );
+        """
+    )
 
 
 def table_has_data():
@@ -15,7 +72,7 @@ def table_has_data():
     Checks if the target table exists and has data.
     """
     try:
-        conn = mysql.connector.connect(**db_config)
+        conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("""
         SELECT COUNT(*) 
@@ -33,30 +90,53 @@ def table_has_data():
     return False
 
 
+def prepare_raw_chunk(chunk):
+    missing_columns = sorted(set(RAW_COLUMNS) - set(chunk.columns))
+    if missing_columns:
+        raise ValueError(f"Raw CSV is missing required columns: {missing_columns}")
+
+    prepared = chunk[RAW_COLUMNS].copy()
+    prepared["DP_DATE"] = pd.to_datetime(prepared["DP_DATE"], errors="coerce")
+    prepared["DP_MSISDN"] = prepared["DP_MSISDN"].astype(str)
+
+    for column in INTEGER_COLUMNS:
+        prepared[column] = pd.to_numeric(prepared[column], errors="coerce").fillna(0).astype(int)
+
+    for column in FLOAT_COLUMNS:
+        prepared[column] = pd.to_numeric(prepared[column], errors="coerce").fillna(0.0)
+
+    invalid_dates = prepared["DP_DATE"].isna().sum()
+    if invalid_dates:
+        raise ValueError(f"Raw CSV contains {invalid_dates} rows with invalid DP_DATE values.")
+
+    prepared["DP_DATE"] = prepared["DP_DATE"].dt.to_pydatetime()
+    prepared = prepared.where(pd.notnull(prepared), None)
+
+    return prepared
+
+
 def create_table_from_csv(csv_file):
     """
     Reads a CSV file and populates the target table.
     """
     chunksize = 10000
     try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(f"USE `{db_config['database']}`")
+        ensure_raw_table(cursor)
+        conn.commit()
+        conn.close()
+
         for chunk in pd.read_csv(csv_file, chunksize=chunksize):
-            chunk = chunk.where(pd.notnull(chunk), None)  # Replace NaN with None
-            conn = mysql.connector.connect(**db_config)
+            chunk = prepare_raw_chunk(chunk)
+            conn = get_connection()
             cursor = conn.cursor()
 
-            cursor.execute("USE RawData")
-            column_defs = ', '.join([f"`{col}` VARCHAR(255)" for col in chunk.columns])  # Adjust as needed
-            create_table_sql = f"""
-            CREATE TABLE IF NOT EXISTS DP_CDR_Data (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                {column_defs}
-            );
-            """
-            cursor.execute(create_table_sql)
-
-            placeholders = ', '.join(['%s'] * len(chunk.columns))
-            insert_sql = f"INSERT INTO DP_CDR_Data ({', '.join(chunk.columns)}) VALUES ({placeholders})"
-            cursor.executemany(insert_sql, chunk.where(pd.notnull(chunk), None).values.tolist())
+            placeholders = ', '.join(['%s'] * len(RAW_COLUMNS))
+            columns = ', '.join([f"`{column}`" for column in RAW_COLUMNS])
+            insert_sql = f"INSERT INTO DP_CDR_Data ({columns}) VALUES ({placeholders})"
+            cursor.executemany(insert_sql, chunk.values.tolist())
 
             conn.commit()
             conn.close()
@@ -70,4 +150,4 @@ if __name__ == "__main__":
         exit(0)
     else:
         print("Populating the database...")
-        create_table_from_csv('/app/RawData.csv')
+        create_table_from_csv(os.getenv("RAW_DATA_CSV", "/app/RawData.csv"))

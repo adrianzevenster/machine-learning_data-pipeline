@@ -22,13 +22,16 @@ DEFAULT_ARGS = {
 
 MYSQL_HOST = "mysql"
 MYSQL_PORT = 3306
-MYSQL_USER = "root"
-MYSQL_PWD = "a?xBVq1!"
-MYSQL_DB = "RawData"
+MYSQL_USER = os.getenv("APP_MYSQL_USER", os.getenv("MYSQL_USER", "spark"))
+MYSQL_PWD = os.getenv("APP_MYSQL_PASSWORD", os.getenv("MYSQL_PASSWORD", "sparkpw"))
+MYSQL_DB = os.getenv("MYSQL_DATABASE", "RawData")
 SPARK_MYSQL_USER = os.getenv("SPARK_MYSQL_USER", "spark")
 SPARK_MYSQL_PWD = os.getenv("SPARK_MYSQL_PASSWORD", "sparkpw")
 
 DOCKER_NETWORK = os.getenv("AIRFLOW_DOCKER_NETWORK", "airflow-network")
+PIPELINE_RUN_ID = "{{ dag.dag_id }}__{{ ts_nodash }}"
+MODEL_VERSION_ID = "{{ dag.dag_id }}__{{ ts_nodash }}__random_forest"
+GIT_SHA = os.getenv("GIT_SHA", "unknown")
 
 DATA_PIPELINE_ROOT = Variable.get("DATA_PIPELINE_ROOT", default_var=None)
 PARQUET_OUT_HOST = Variable.get("PARQUET_OUT_HOST", default_var=None)
@@ -153,6 +156,8 @@ with DAG(
             "MYSQL_DATABASE": "RawData",
             "MYSQL_USER": SPARK_MYSQL_USER,
             "MYSQL_PASSWORD": SPARK_MYSQL_PWD,
+            "AIRFLOW_DAG_ID": "local_dev_pipeline",
+            "PIPELINE_RUN_ID": PIPELINE_RUN_ID,
             "CHURN_INACTIVE_DAYS": "1",
             "PROCESSED_WRITE_MODE": "overwrite",
             "PYSPARK_PYTHON": "python3",
@@ -176,6 +181,12 @@ with DAG(
             "MYSQL_DATABASE": "RawData",
             "MYSQL_USER": SPARK_MYSQL_USER,
             "MYSQL_PASSWORD": SPARK_MYSQL_PWD,
+            "AIRFLOW_DAG_ID": "local_dev_pipeline",
+            "PIPELINE_RUN_ID": PIPELINE_RUN_ID,
+            "MODEL_VERSION_ID": MODEL_VERSION_ID,
+            "GIT_SHA": GIT_SHA,
+            "IMAGE_TAG": "pyspark-app:latest",
+            "MODEL_ARTIFACT_URI": f"/tmp/models/{MODEL_VERSION_ID}",
             "MODEL_PREDICTIONS_WRITE_MODE": "overwrite",
             "PYSPARK_PYTHON": "python3",
             "SPARK_DRIVER_MEMORY": "4g",
@@ -222,6 +233,7 @@ with DAG(
             "MYSQL_PASSWORD": MYSQL_PWD,
             "MYSQL_DATABASE": MYSQL_DB,
             "MIN_PREDICTION_ROWS": "1",
+            "PIPELINE_RUN_ID": PIPELINE_RUN_ID,
         },
         command="python /app/quality/validate_mysql_tables.py predictions",
     )
@@ -240,6 +252,8 @@ with DAG(
             "MYSQL_USER": MYSQL_USER,
             "MYSQL_PASSWORD": MYSQL_PWD,
             "MYSQL_DATABASE": MYSQL_DB,
+            "PIPELINE_RUN_ID": PIPELINE_RUN_ID,
+            "MODEL_VERSION_ID": MODEL_VERSION_ID,
         },
         mounts=MONITORING_MOUNTS,
         command="python /app/Model_Monitoring.py",

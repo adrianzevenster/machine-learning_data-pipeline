@@ -3,6 +3,9 @@ __pycache__/
 
 .codex
 .codex/
+.env
+.env.*
+!.env.example
 
 airflow-docker/logs/
 airflow-docker/output/

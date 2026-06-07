@@ -2,8 +2,10 @@ import os
 import sys
 import socket
 import time
+import json
 from datetime import datetime, timedelta
 
+import mysql.connector
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.ml import Pipeline
@@ -18,6 +20,12 @@ MYSQL_DB = os.getenv("MYSQL_DATABASE", "RawData")
 MYSQL_USER = os.getenv("MYSQL_USER", "spark")
 MYSQL_PASS = os.getenv("MYSQL_PASSWORD", "sparkpw")
 PREDICTIONS_WRITE_MODE = os.getenv("MODEL_PREDICTIONS_WRITE_MODE", "overwrite")
+PIPELINE_RUN_ID = os.getenv("PIPELINE_RUN_ID", f"manual-{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}")
+MODEL_VERSION_ID = os.getenv("MODEL_VERSION_ID", f"{PIPELINE_RUN_ID}-random-forest")
+MODEL_NAME = os.getenv("MODEL_NAME", "customer_churn_random_forest")
+GIT_SHA = os.getenv("GIT_SHA", "unknown")
+IMAGE_TAG = os.getenv("IMAGE_TAG", "pyspark-app:latest")
+MODEL_ARTIFACT_URI = os.getenv("MODEL_ARTIFACT_URI", f"/tmp/models/{MODEL_VERSION_ID}")
 
 
 def wait_for_host(host, port=3306, attempts=20, delay=3):
@@ -58,6 +66,97 @@ JDBC_PROPS = {
 }
 
 TABLE = "Processed_Data"
+
+
+def mysql_connection():
+    return mysql.connector.connect(
+        host=MYSQL_HOST,
+        user=MYSQL_USER,
+        password=MYSQL_PASS,
+        database=MYSQL_DB,
+    )
+
+
+def fetch_scalar(sql, params=None):
+    with mysql_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(sql, params or ())
+        return cursor.fetchone()[0]
+
+
+def upsert_pipeline_run(status, prediction_count=None):
+    raw_count = fetch_scalar("SELECT COUNT(*) FROM DP_CDR_Data")
+    processed_count = fetch_scalar("SELECT COUNT(*) FROM Processed_Data")
+
+    with mysql_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO pipeline_runs (
+                run_id, dag_id, git_sha, image_tag, data_start, data_end,
+                raw_row_count, processed_row_count, prediction_row_count, status
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                git_sha = VALUES(git_sha),
+                image_tag = VALUES(image_tag),
+                data_start = VALUES(data_start),
+                data_end = VALUES(data_end),
+                raw_row_count = VALUES(raw_row_count),
+                processed_row_count = VALUES(processed_row_count),
+                prediction_row_count = VALUES(prediction_row_count),
+                status = VALUES(status)
+            """,
+            (
+                PIPELINE_RUN_ID,
+                os.getenv("AIRFLOW_DAG_ID", "local_dev_pipeline"),
+                GIT_SHA,
+                IMAGE_TAG,
+                START,
+                END,
+                raw_count,
+                processed_count,
+                prediction_count,
+                status,
+            ),
+        )
+        conn.commit()
+
+
+def upsert_model_version(metric):
+    params = {
+        "numTrees": [50],
+        "maxDepth": [5, 10],
+        "numFolds": int(min(3, int(min_class_count))),
+        "features": feature_cols,
+    }
+    metrics = {"auc": metric} if metric is not None else {}
+
+    with mysql_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO model_versions (
+                model_version_id, run_id, model_name, algorithm,
+                parameters_json, metrics_json, artifact_uri
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                parameters_json = VALUES(parameters_json),
+                metrics_json = VALUES(metrics_json),
+                artifact_uri = VALUES(artifact_uri)
+            """,
+            (
+                MODEL_VERSION_ID,
+                PIPELINE_RUN_ID,
+                MODEL_NAME,
+                "RandomForestClassifier",
+                json.dumps(params, sort_keys=True),
+                json.dumps(metrics, sort_keys=True),
+                MODEL_ARTIFACT_URI,
+            ),
+        )
+        conn.commit()
 
 spark = (
     SparkSession.builder
@@ -236,7 +335,10 @@ cv = CrossValidator(
 
 cv_model = cv.fit(train_df)
 print("[model] trained OK")
+cv_model.write().overwrite().save(MODEL_ARTIFACT_URI)
+print(f"[model] saved artifact to {MODEL_ARTIFACT_URI}")
 
+metric = None
 if test_count > 0:
     predictions = cv_model.transform(test_df)
     metric = evaluator.evaluate(predictions)
@@ -254,7 +356,11 @@ prediction_output = (
         "Date",
         F.coalesce(F.to_timestamp("Date"), F.current_timestamp())
     )
+    .withColumn("pipeline_run_id", F.lit(PIPELINE_RUN_ID))
+    .withColumn("model_version_id", F.lit(MODEL_VERSION_ID))
     .select(
+        F.col("pipeline_run_id"),
+        F.col("model_version_id"),
         F.col("label").cast("double").alias("label"),
         F.col("prediction").cast("double").alias("prediction"),
         F.col("probability_0").cast("double").alias("probability_0"),
@@ -269,6 +375,9 @@ prediction_output.show(10, truncate=False)
 
 if prediction_count == 0:
     raise SystemExit("[fatal] No prediction rows produced; model_predictions was not written.")
+
+upsert_pipeline_run("model_trained", prediction_count=prediction_count)
+upsert_model_version(metric)
 
 (
     prediction_output.write
@@ -286,4 +395,5 @@ if prediction_count == 0:
 )
 
 print(f"[write] model_predictions {PREDICTIONS_WRITE_MODE} done")
+upsert_pipeline_run("predictions_written", prediction_count=prediction_count)
 print("[done] pySparkModel completed successfully.")

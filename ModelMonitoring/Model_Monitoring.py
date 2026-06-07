@@ -24,9 +24,12 @@ def run_monitoring():
 
         # Fetch data
         predictions_df = spark.read.jdbc(
-            url="jdbc:mysql://flaskapp-flaskapp-db-1:3306/RawData",
+            url=f"jdbc:mysql://{os.getenv('MYSQL_HOST', 'flaskapp-flaskapp-db-1')}:3306/{os.getenv('MYSQL_DATABASE', 'RawData')}",
             table="model_predictions",
-            properties={"user": "root", "password": "a?xBVq1!"}
+            properties={
+                "user": os.getenv("MYSQL_USER", "spark"),
+                "password": os.getenv("MYSQL_PASSWORD", "sparkpw"),
+            }
         )
 
         predictions_pd = predictions_df.select("label", "prediction", "probability_0", "probability_1", "Date").toPandas()
