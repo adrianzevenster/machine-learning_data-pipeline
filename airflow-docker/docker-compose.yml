@@ -19,6 +19,17 @@ services:
     container_name: airflow-redis
     networks: [airflow-network]
 
+  mlflow:
+    build: ./mlflow
+    image: mlflow-tracking:latest
+    container_name: mlflow-tracking
+    volumes:
+      - mlflow_backend:/mlflow/backend
+      - mlflow_artifacts:/mlflow/artifacts
+    ports:
+      - "${MLFLOW_HOST_PORT:-5002}:5000"
+    networks: [airflow-network]
+
   custom-airflow:
     build: .
     image: custom-airflow:latest
@@ -53,6 +64,7 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: CeleryExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@postgres/${AIRFLOW_POSTGRES_DB:-airflow}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-local-dev-airflow-secret-key-change-me}
       AIRFLOW_UID: "50000"
       AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-airflow}
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-airflow}
@@ -86,11 +98,18 @@ services:
     environment:
       AIRFLOW_DOCKER_NETWORK: "airflow-network"
       AIRFLOW_CONN_FLASK_SERVICE: "http://flaskapp:5000"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      MLFLOW_EXPERIMENT_NAME: "${MLFLOW_EXPERIMENT_NAME:-customer_churn}"
+      MLFLOW_REGISTERED_MODEL_NAME: "${MLFLOW_REGISTERED_MODEL_NAME:-customer_churn_random_forest}"
+      MODEL_PROMOTION_STAGE: "${MODEL_PROMOTION_STAGE:-Production}"
+      MIN_MODEL_AUC: "${MIN_MODEL_AUC:-0.5}"
+      MIN_PROMOTION_PREDICTION_ROWS: "${MIN_PROMOTION_PREDICTION_ROWS:-1}"
       AIRFLOW__CORE__EXECUTOR: CeleryExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@postgres/${AIRFLOW_POSTGRES_DB:-airflow}
       AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
       AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@postgres/${AIRFLOW_POSTGRES_DB:-airflow}
       AIRFLOW__WEBSERVER__RATE_LIMIT_STORAGE_URI: redis://redis:6379/1
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-local-dev-airflow-secret-key-change-me}
       AIRFLOW_UID: "50000"
     command: ["webserver"]
     ports:
@@ -117,10 +136,17 @@ services:
     environment:
       AIRFLOW_DOCKER_NETWORK: "airflow-network"
       AIRFLOW_CONN_FLASK_SERVICE: "http://flaskapp:5000"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      MLFLOW_EXPERIMENT_NAME: "${MLFLOW_EXPERIMENT_NAME:-customer_churn}"
+      MLFLOW_REGISTERED_MODEL_NAME: "${MLFLOW_REGISTERED_MODEL_NAME:-customer_churn_random_forest}"
+      MODEL_PROMOTION_STAGE: "${MODEL_PROMOTION_STAGE:-Production}"
+      MIN_MODEL_AUC: "${MIN_MODEL_AUC:-0.5}"
+      MIN_PROMOTION_PREDICTION_ROWS: "${MIN_PROMOTION_PREDICTION_ROWS:-1}"
       AIRFLOW__CORE__EXECUTOR: CeleryExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@postgres/${AIRFLOW_POSTGRES_DB:-airflow}
       AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
       AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@postgres/${AIRFLOW_POSTGRES_DB:-airflow}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-local-dev-airflow-secret-key-change-me}
       AIRFLOW_UID: "50000"
     command: ["scheduler"]
     volumes:
@@ -148,10 +174,17 @@ services:
     environment:
       AIRFLOW_DOCKER_NETWORK: "airflow-network"
       AIRFLOW_CONN_FLASK_SERVICE: "http://flaskapp:5000"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      MLFLOW_EXPERIMENT_NAME: "${MLFLOW_EXPERIMENT_NAME:-customer_churn}"
+      MLFLOW_REGISTERED_MODEL_NAME: "${MLFLOW_REGISTERED_MODEL_NAME:-customer_churn_random_forest}"
+      MODEL_PROMOTION_STAGE: "${MODEL_PROMOTION_STAGE:-Production}"
+      MIN_MODEL_AUC: "${MIN_MODEL_AUC:-0.5}"
+      MIN_PROMOTION_PREDICTION_ROWS: "${MIN_PROMOTION_PREDICTION_ROWS:-1}"
       AIRFLOW__CORE__EXECUTOR: CeleryExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@postgres/${AIRFLOW_POSTGRES_DB:-airflow}
       AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
       AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@postgres/${AIRFLOW_POSTGRES_DB:-airflow}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-local-dev-airflow-secret-key-change-me}
       AIRFLOW_UID: "50000"
     command: ["celery", "worker"]
     volumes:
@@ -213,6 +246,30 @@ services:
       sh -c "python3 /app/PySparkAnalysis.py"
     networks: [airflow-network]
 
+  serving-app:
+    build:
+      context: ./serving
+    image: serving-app:latest
+    profiles: ["build"]
+    command: ["echo", "serving image built"]
+    networks: [airflow-network]
+
+  model-serving:
+    image: serving-app:latest
+    container_name: model-serving
+    depends_on:
+      mlflow:
+        condition: service_started
+    environment:
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      MLFLOW_REGISTERED_MODEL_NAME: "${MLFLOW_REGISTERED_MODEL_NAME:-customer_churn_random_forest}"
+      MODEL_PROMOTION_STAGE: "${MODEL_PROMOTION_STAGE:-Production}"
+      PYSPARK_PYTHON: "python3"
+      SPARK_DRIVER_MEMORY: "${SERVING_SPARK_DRIVER_MEMORY:-2g}"
+    ports:
+      - "${SERVING_HOST_PORT:-5003}:8000"
+    networks: [airflow-network]
+
   model-monitoring:
     build:
       context: .
@@ -235,6 +292,8 @@ services:
 volumes:
   postgres_data:
   mydb_data:
+  mlflow_backend:
+  mlflow_artifacts:
 
 networks:
   airflow-network:
