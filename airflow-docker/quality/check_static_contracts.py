@@ -9,7 +9,7 @@ AIRFLOW_ROOT = REPO_ROOT / "airflow-docker"
 
 DAG_PATH = AIRFLOW_ROOT / "dags" / "docker_container_orchestration.py"
 COMPOSE_PATH = AIRFLOW_ROOT / "docker-compose.yml"
-SCHEMA_PATH = AIRFLOW_ROOT / "mysql" / "migrations" / "001_create_core_tables.sql"
+MIGRATIONS_DIR = AIRFLOW_ROOT / "mysql" / "migrations"
 CONTRACTS_PATH = AIRFLOW_ROOT / "quality" / "validate_mysql_tables.py"
 DOCKERIGNORE_PATH = AIRFLOW_ROOT / ".dockerignore"
 ENV_EXAMPLE_PATH = AIRFLOW_ROOT / ".env.example"
@@ -22,6 +22,8 @@ REQUIRED_DAG_TASKS = {
     "validate_model_predictions",
     "promote_model",
     "run_monitoring",
+    "record_ab_outcomes",
+    "run_ab_analysis",
 }
 
 REQUIRED_IMAGES = {
@@ -116,6 +118,19 @@ REQUIRED_SCHEMA_COLUMNS = {
         "metrics_path",
         "plot_path",
     },
+    "serving_predictions": {
+        "request_id",
+        "msisdn",
+        "model_name",
+        "model_stage",
+        "model_variant",
+        "prediction",
+        "probability_churn",
+        "probability_retain",
+        "served_at",
+        "actual_churn",
+        "outcome_recorded_at",
+    },
 }
 
 REQUIRED_IGNORE_PATTERNS = {
@@ -161,6 +176,13 @@ def read_text(path: Path) -> str:
     if not path.exists():
         raise AssertionError(f"Required file is missing: {path.relative_to(REPO_ROOT)}")
     return path.read_text(encoding="utf-8")
+
+
+def read_all_migrations() -> str:
+    sql_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    if not sql_files:
+        raise AssertionError(f"No SQL migration files found in {MIGRATIONS_DIR.relative_to(REPO_ROOT)}")
+    return "\n".join(f.read_text(encoding="utf-8") for f in sql_files)
 
 
 def load_table_contracts() -> dict:
@@ -253,7 +275,7 @@ def assert_dag_quality_gates() -> None:
 
 
 def assert_schema_matches_contracts() -> None:
-    schema_text = read_text(SCHEMA_PATH)
+    schema_text = read_all_migrations()
     contracts = load_table_contracts()
     table_contracts = {
         contract["table"]: contract["required_columns"]
@@ -276,6 +298,7 @@ def assert_schema_matches_contracts() -> None:
             "model_versions",
             "model_deployments",
             "monitoring_reports",
+            "serving_predictions",
         } and not contract_columns:
             raise AssertionError(f"No data-quality contract found for {table_name}")
         if contract_columns:
@@ -319,6 +342,21 @@ def assert_runtime_hardening() -> None:
     if "promote_model.py" not in monitoring_dockerfile:
         raise AssertionError("Monitoring image must include the model promotion command.")
 
+    if "check_drift_alert.py" not in monitoring_dockerfile:
+        raise AssertionError("Monitoring image must include the drift alert script.")
+
+    if "feature_drift.py" not in monitoring_dockerfile:
+        raise AssertionError("Monitoring image must include the feature drift script.")
+
+    if "rollback_model.py" not in monitoring_dockerfile:
+        raise AssertionError("Monitoring image must include the model rollback script.")
+
+    if "record_ab_outcomes.py" not in monitoring_dockerfile:
+        raise AssertionError("Monitoring image must include the A/B outcome recording script.")
+
+    if "ab_analysis.py" not in monitoring_dockerfile:
+        raise AssertionError("Monitoring image must include the A/B analysis script.")
+
     if "COPY quality" not in monitoring_dockerfile or "mysql/migrations" not in monitoring_dockerfile:
         raise AssertionError("Monitoring image must include MySQL migration runner and SQL migrations.")
 
@@ -330,6 +368,8 @@ def assert_runtime_hardening() -> None:
         raise AssertionError("Serving image must use uvicorn as the ASGI server.")
     if "mlflow==" not in serving_requirements:
         raise AssertionError("Serving image must include the MLflow client dependency.")
+    if "prometheus-fastapi-instrumentator" not in serving_requirements:
+        raise AssertionError("Serving image must expose Prometheus metrics via prometheus-fastapi-instrumentator.")
 
     debug_pattern = "app.run(" + "debug=True"
     if debug_pattern in read_text(AIRFLOW_ROOT / "flaskapp" / "streamingestion.py"):

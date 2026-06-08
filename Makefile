@@ -16,11 +16,18 @@ compile:
 		airflow-docker/flaskapp/request_validation.py \
 		airflow-docker/flaskapp/streamingestion.py \
 		airflow-docker/model_monitoring/Model_Monitoring.py \
+		airflow-docker/model_monitoring/check_drift_alert.py \
+		airflow-docker/model_monitoring/feature_drift.py \
 		airflow-docker/quality/check_secret_patterns.py \
 		airflow-docker/quality/check_static_contracts.py \
 		airflow-docker/quality/validate_mysql_tables.py \
+		airflow-docker/quality/validate_raw_schema.py \
 		airflow-docker/pySpark/PySparkAnalysis.py \
 		airflow-docker/pySpark/pySparkModel.py \
+		airflow-docker/model_monitoring/rollback_model.py \
+		airflow-docker/model_monitoring/record_ab_outcomes.py \
+		airflow-docker/model_monitoring/ab_analysis.py \
+		airflow-docker/serving/prediction_logger.py \
 		airflow-docker/serving/main.py
 
 compose-check:
@@ -34,6 +41,16 @@ secret-patterns:
 
 test:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 $(PYTEST) -p no:cacheprovider airflow-docker/tests
+
+load-test:
+	locust -f airflow-docker/tests/locustfile.py \
+		--headless \
+		--users 20 \
+		--spawn-rate 5 \
+		--run-time 60s \
+		--host http://localhost:$${SERVING_HOST_PORT:-8000} \
+		--csv /tmp/locust_results \
+		--only-summary
 
 build-images:
 	docker compose --profile build -f $(COMPOSE_FILE) build \

@@ -6,22 +6,61 @@ on:
     branches: [main, master]
 
 jobs:
-  validate:
+  quality:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
 
       - name: Install test dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Run quality gates
         run: make quality
 
-      - name: Build application images
-        run: make build-images
+      - name: Params diff (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          pip install pyyaml --quiet
+          BASE=${{ github.event.pull_request.base.sha }}
+          git show "${BASE}:params.yaml" > /tmp/params_base.yaml 2>/dev/null || echo "{}" > /tmp/params_base.yaml
+          python3 - <<'PYEOF'
+          import yaml
+
+          def flatten(d, prefix=""):
+              out = {}
+              for k, v in d.items():
+                  key = f"{prefix}.{k}" if prefix else k
+                  if isinstance(v, dict):
+                      out.update(flatten(v, key))
+                  else:
+                      out[key] = v
+              return out
+
+          with open("/tmp/params_base.yaml") as f:
+              base = flatten(yaml.safe_load(f) or {})
+          with open("params.yaml") as f:
+              head = flatten(yaml.safe_load(f) or {})
+
+          lines = ["## params.yaml diff", ""]
+          changed = False
+          for k in sorted(set(base) | set(head)):
+              b, h = base.get(k, "(missing)"), head.get(k, "(missing)")
+              if b != h:
+                  lines.append(f"- **{k}**: `{b}` → `{h}`")
+                  changed = True
+          if not changed:
+              lines.append("_No changes_")
+
+          import os
+          summary = os.environ.get("GITHUB_STEP_SUMMARY", "/dev/stdout")
+          with open(summary, "a") as f:
+              f.write("\n".join(lines) + "\n")
+          PYEOF

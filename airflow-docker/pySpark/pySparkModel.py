@@ -563,6 +563,28 @@ print(f"[model] saved artifact to {MODEL_ARTIFACT_URI}")
 register_mlflow_model(mlflow_run_id)
 print(f"[mlflow] run_id={mlflow_run_id} model_uri={mlflow_model_uri}")
 
+# Log Gini feature importances from the fitted RandomForest stage
+try:
+    rf_stage = cv_model.bestModel.stages[-1]
+    importances = rf_stage.featureImportances.toArray()
+    importance_dict = {col: float(imp) for col, imp in zip(feature_cols, importances.tolist())}
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as fi_file:
+        json.dump(importance_dict, fi_file, indent=2)
+        fi_path = fi_file.name
+    mlflow.log_artifact(fi_path, artifact_path="explanation")
+    os.unlink(fi_path)
+
+    # Save a sample of training data as SHAP background dataset
+    background = train_df.select(feature_cols).limit(100).toPandas()
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as bg_file:
+        background.to_csv(bg_file, index=False)
+        bg_path = bg_file.name
+    mlflow.log_artifact(bg_path, artifact_path="explanation")
+    os.unlink(bg_path)
+    print(f"[mlflow] logged feature importances and SHAP background ({len(background)} rows)")
+except Exception as _exc:
+    print(f"[mlflow] WARNING: could not log explanation artifacts: {_exc}")
+
 metric = None
 if test_count > 0:
     predictions = cv_model.transform(test_df)
