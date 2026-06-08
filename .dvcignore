@@ -1,0 +1,9 @@
+# Files DVC should ignore when computing checksums
+airflow-docker/logs/
+airflow-docker/output/
+**/__pycache__/
+**/*.py[cod]
+*.egg-info/
+.env
+.env.*
+!.env.example

@@ -1,0 +1,9 @@
+{
+  "pipeline_run_id": "manual-20260607T133012Z",
+  "model_version_id": "manual-20260607T133012Z-random-forest",
+  "auc": 0.5006503642039543,
+  "train_rows": 199686,
+  "test_rows": 50157,
+  "prediction_rows": 50157,
+  "feature_count": 6
+}

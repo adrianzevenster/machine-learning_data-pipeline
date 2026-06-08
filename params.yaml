@@ -1,0 +1,28 @@
+model:
+  num_trees: 50
+  # Comma-separated list; passed as MODEL_MAX_DEPTH env var
+  max_depth: "5,10"
+  cv_folds: 2
+  training_max_rows: 250000
+  min_auc: 0.5
+  min_promotion_prediction_rows: 1
+
+pyspark:
+  driver_memory: 4g
+  executor_memory: 4g
+  shuffle_partitions: 4
+  # Days of inactivity used to label a subscriber as churned
+  churn_inactive_days: 1
+
+data:
+  batch_size: 1000
+  num_batches: 10
+  stream_interval: 10
+
+pipeline:
+  # Cron schedule consumed by the Airflow DAG via PIPELINE_SCHEDULE env var
+  schedule: "0 2 * * 0"
+  predictions_write_mode: append
+  experiment_name: customer_churn
+  registered_model_name: customer_churn_random_forest
+  promotion_stage: Production

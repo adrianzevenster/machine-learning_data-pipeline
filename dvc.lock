@@ -1,0 +1,161 @@
+schema: '2.0'
+stages:
+  ingest:
+    cmd: bash dvc/stages/ingest.sh
+    deps:
+    - path: airflow-docker/flaskapp/DataBase.py
+      hash: md5
+      md5: 7c53d4c778395c678ce594b093015d03
+      size: 4570
+    - path: airflow-docker/flaskapp/RawData.csv
+      hash: md5
+      md5: 713225982e2eb6c4ee40960a89b9ac1c
+      size: 5890749713
+    - path: dvc/stages/ingest.sh
+      hash: md5
+      md5: 50f70c4d7d72d4cb315bcff1e0be2e42
+      size: 383
+      isexec: true
+    outs:
+    - path: data/raw/.ingest_done
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+  eda:
+    cmd: bash dvc/stages/eda.sh
+    deps:
+    - path: airflow-docker/ExploratoryDataAnalysis/EDA.py
+      hash: md5
+      md5: e156b3bd8016521f3d885a9014223a56
+      size: 4506
+    - path: data/raw/.ingest_done
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    - path: dvc/stages/eda.sh
+      hash: md5
+      md5: ffb35f5f8457b8a51405d8d4683eb340
+      size: 281
+      isexec: true
+    outs:
+    - path: data/eda/
+      hash: md5
+      md5: 907325b53e63ceb4d0a0d7f69ada6f4a.dir
+      size: 249913
+      nfiles: 10
+  feature_engineering:
+    cmd: "export SPARK_DRIVER_MEMORY=4g\nexport SPARK_EXECUTOR_MEMORY=4g\nexport SPARK_SQL_SHUFFLE_PARTITIONS=4\n\
+      export CHURN_INACTIVE_DAYS=1\nbash dvc/stages/feature_engineering.sh\n"
+    deps:
+    - path: airflow-docker/pySpark/PySparkAnalysis.py
+      hash: md5
+      md5: 7aca2770e944e95e567067bdb2adfe82
+      size: 4071
+    - path: data/raw/.ingest_done
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    - path: dvc/stages/feature_engineering.sh
+      hash: md5
+      md5: 40502cfa146e258bb1528efcc80e3dea
+      size: 847
+      isexec: true
+    params:
+      params.yaml:
+        pyspark.churn_inactive_days: 1
+        pyspark.driver_memory: 4g
+        pyspark.executor_memory: 4g
+        pyspark.shuffle_partitions: 4
+    outs:
+    - path: data/processed/.features_done
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+  train:
+    cmd: "export MODEL_TRAINING_MAX_ROWS=250000\nexport MODEL_CV_FOLDS=2\nexport MODEL_NUM_TREES=50\n\
+      export MODEL_MAX_DEPTH=5,10\nexport SPARK_SQL_SHUFFLE_PARTITIONS=4\nexport SPARK_DRIVER_MEMORY=4g\n\
+      export SPARK_EXECUTOR_MEMORY=4g\nexport MLFLOW_EXPERIMENT_NAME=customer_churn\n\
+      export MLFLOW_REGISTERED_MODEL_NAME=customer_churn_random_forest\nexport MODEL_PREDICTIONS_WRITE_MODE=append\n\
+      bash dvc/stages/train.sh\n"
+    deps:
+    - path: airflow-docker/pySpark/pySparkModel.py
+      hash: md5
+      md5: ce0c9229962fbd62e4cc393f1aecb2b1
+      size: 23812
+    - path: data/processed/.features_done
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    - path: dvc/stages/train.sh
+      hash: md5
+      md5: fbfbc34420bc7116ea81605114baebce
+      size: 1621
+      isexec: true
+    params:
+      params.yaml:
+        model.cv_folds: 2
+        model.max_depth: 5,10
+        model.num_trees: 50
+        model.training_max_rows: 250000
+        pipeline.experiment_name: customer_churn
+        pipeline.predictions_write_mode: append
+        pipeline.registered_model_name: customer_churn_random_forest
+        pyspark.driver_memory: 4g
+        pyspark.executor_memory: 4g
+        pyspark.shuffle_partitions: 4
+    outs:
+    - path: metrics/train_metrics.json
+      hash: md5
+      md5: e4f8f76a6ff7e58b76d422592a3717a6
+      size: 238
+    - path: models/current/
+      hash: md5
+      md5: d953ef581a5b9a6631f0f17dad45aea2.dir
+      size: 19367
+      nfiles: 52
+  promote:
+    cmd: "export MLFLOW_REGISTERED_MODEL_NAME=customer_churn_random_forest\nexport
+      MODEL_PROMOTION_STAGE=Production\nexport MIN_MODEL_AUC=0.5\nexport MIN_PROMOTION_PREDICTION_ROWS=1\n\
+      bash dvc/stages/promote.sh\n"
+    deps:
+    - path: airflow-docker/model_monitoring/promote_model.py
+      hash: md5
+      md5: d05d811865c462b7ede89c23aa497218
+      size: 8427
+    - path: dvc/stages/promote.sh
+      hash: md5
+      md5: af670b25b16409265f897a0dda0633e3
+      size: 968
+      isexec: true
+    - path: metrics/train_metrics.json
+      hash: md5
+      md5: e4f8f76a6ff7e58b76d422592a3717a6
+      size: 238
+    params:
+      params.yaml:
+        model.min_auc: 0.5
+        model.min_promotion_prediction_rows: 1
+        pipeline.promotion_stage: Production
+        pipeline.registered_model_name: customer_churn_random_forest
+  monitor:
+    cmd: bash dvc/stages/monitor.sh
+    deps:
+    - path: airflow-docker/model_monitoring/Model_Monitoring.py
+      hash: md5
+      md5: 482412cb327a6763cfa7a0e9ebf77b39
+      size: 6971
+    - path: dvc/stages/monitor.sh
+      hash: md5
+      md5: c13d76282f5c4ac51866b7d8b8ad7a8f
+      size: 520
+      isexec: true
+    - path: metrics/train_metrics.json
+      hash: md5
+      md5: e4f8f76a6ff7e58b76d422592a3717a6
+      size: 238
+    outs:
+    - path: data/monitoring/
+      hash: md5
+      md5: 6357c580a57f4724a77dd58dd08fdd8b.dir
+      size: 83479
+      nfiles: 2

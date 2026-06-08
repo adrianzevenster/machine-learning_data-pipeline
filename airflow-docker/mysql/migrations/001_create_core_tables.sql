@@ -64,8 +64,29 @@ CREATE TABLE IF NOT EXISTS model_versions (
     parameters_json TEXT,
     metrics_json TEXT,
     artifact_uri VARCHAR(512),
+    mlflow_run_id VARCHAR(250),
+    mlflow_model_uri VARCHAR(512),
+    promotion_status VARCHAR(32) NOT NULL DEFAULT 'candidate',
+    promotion_stage VARCHAR(32) NOT NULL DEFAULT 'None',
+    promotion_reason TEXT,
+    promoted_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_model_versions_run (run_id)
+    INDEX idx_model_versions_run (run_id),
+    INDEX idx_model_versions_mlflow_run (mlflow_run_id),
+    INDEX idx_model_versions_promotion (promotion_status, promotion_stage)
+);
+
+CREATE TABLE IF NOT EXISTS model_deployments (
+    model_name VARCHAR(128) NOT NULL,
+    stage VARCHAR(32) NOT NULL,
+    model_version_id VARCHAR(250) NOT NULL,
+    mlflow_run_id VARCHAR(250) NOT NULL,
+    mlflow_model_uri VARCHAR(512) NOT NULL,
+    promoted_by_run_id VARCHAR(250) NOT NULL,
+    promoted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (model_name, stage),
+    INDEX idx_model_deployments_model_version (model_version_id),
+    INDEX idx_model_deployments_run (mlflow_run_id)
 );
 
 CREATE TABLE IF NOT EXISTS model_predictions (
