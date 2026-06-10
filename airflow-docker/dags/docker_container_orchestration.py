@@ -12,12 +12,41 @@ from airflow.providers.http.operators.http import SimpleHttpOperator
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
+def _on_task_failure(context) -> None:
+    """Post a Slack notification when any pipeline task fails."""
+    import json
+    import urllib.request
+
+    webhook = os.getenv("SLACK_WEBHOOK_URL", "")
+    if not webhook:
+        return
+    ti = context["task_instance"]
+    msg = (
+        f":x: *Pipeline task failed*\n"
+        f"DAG: `{ti.dag_id}`  Task: `{ti.task_id}`\n"
+        f"Run: `{ti.run_id}`\n"
+        f"Log: {ti.log_url}"
+    )
+    try:
+        payload = json.dumps({"text": msg}).encode()
+        req = urllib.request.Request(
+            webhook,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as exc:
+        print(f"[failure-alert] Slack notification failed: {exc}")
+
+
 DEFAULT_ARGS = {
     "owner": "airflow",
     "depends_on_past": False,
     "email_on_failure": False,
     "retries": 1,
     "retry_delay": timedelta(minutes=5),
+    "on_failure_callback": _on_task_failure,
 }
 
 MYSQL_HOST = "mysql"
@@ -140,6 +169,9 @@ with DAG(
         log_response=True,
     )
 
+    DRIFT_ALERT_MIN_ROC_AUC = os.getenv("DRIFT_ALERT_MIN_ROC_AUC", "0.6")
+    SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+
     validate_raw_data = DockerOperator(
         task_id="validate_raw_data",
         image="model-monitoring:latest",
@@ -157,6 +189,24 @@ with DAG(
             "MIN_RAW_ROWS": "1",
         },
         command="python /app/quality/validate_mysql_tables.py raw",
+    )
+
+    validate_raw_schema = DockerOperator(
+        task_id="validate_raw_schema",
+        image="model-monitoring:latest",
+        container_name="validate-raw-schema-{{ ts_nodash }}",
+        auto_remove=True,
+        docker_url="unix:///var/run/docker.sock",
+        network_mode=DOCKER_NETWORK,
+        mount_tmp_dir=False,
+        do_xcom_push=False,
+        environment={
+            "MYSQL_HOST": MYSQL_HOST,
+            "MYSQL_USER": MYSQL_USER,
+            "MYSQL_PASSWORD": MYSQL_PWD,
+            "MYSQL_DATABASE": MYSQL_DB,
+        },
+        command="python /app/quality/validate_raw_schema.py raw",
     )
 
     run_eda = DockerOperator(
@@ -346,12 +396,99 @@ with DAG(
         command="python /app/Model_Monitoring.py",
     )
 
+    run_feature_drift = DockerOperator(
+        task_id="run_feature_drift",
+        image="model-monitoring:latest",
+        container_name="run-feature-drift-{{ ts_nodash }}",
+        auto_remove=True,
+        docker_url="unix:///var/run/docker.sock",
+        network_mode=DOCKER_NETWORK,
+        mount_tmp_dir=False,
+        do_xcom_push=False,
+        environment={
+            "MYSQL_HOST": MYSQL_HOST,
+            "MYSQL_USER": MYSQL_USER,
+            "MYSQL_PASSWORD": MYSQL_PWD,
+            "MYSQL_DATABASE": MYSQL_DB,
+            "PIPELINE_RUN_ID": PIPELINE_RUN_ID,
+            "MODEL_VERSION_ID": MODEL_VERSION_ID,
+        },
+        mounts=MONITORING_MOUNTS,
+        command="python /app/feature_drift.py",
+    )
+
+    check_drift_alert = DockerOperator(
+        task_id="check_drift_alert",
+        image="model-monitoring:latest",
+        container_name="check-drift-alert-{{ ts_nodash }}",
+        auto_remove=True,
+        docker_url="unix:///var/run/docker.sock",
+        network_mode=DOCKER_NETWORK,
+        mount_tmp_dir=False,
+        do_xcom_push=False,
+        environment={
+            "PIPELINE_RUN_ID": PIPELINE_RUN_ID,
+            "MONITORING_OUTPUT_DIR": "/app/output/monitoring",
+            "DRIFT_ALERT_MIN_ROC_AUC": DRIFT_ALERT_MIN_ROC_AUC,
+            "SLACK_WEBHOOK_URL": SLACK_WEBHOOK_URL,
+            "AUTO_RETRAIN_ON_DRIFT": os.getenv("AUTO_RETRAIN_ON_DRIFT", "false"),
+            "AIRFLOW_API_URL": "http://airflow-webserver:8080",
+            "AIRFLOW_DAG_ID": "local_dev_pipeline",
+            "AIRFLOW_ADMIN_USERNAME": os.getenv("AIRFLOW_ADMIN_USERNAME", "airflow"),
+            "AIRFLOW_ADMIN_PASSWORD": os.getenv("AIRFLOW_ADMIN_PASSWORD", "airflow"),
+        },
+        mounts=MONITORING_MOUNTS,
+        command="python /app/check_drift_alert.py",
+    )
+
+    record_ab_outcomes = DockerOperator(
+        task_id="record_ab_outcomes",
+        image="model-monitoring:latest",
+        container_name="record-ab-outcomes-{{ ts_nodash }}",
+        auto_remove=True,
+        docker_url="unix:///var/run/docker.sock",
+        network_mode=DOCKER_NETWORK,
+        mount_tmp_dir=False,
+        do_xcom_push=False,
+        environment={
+            "MYSQL_HOST": MYSQL_HOST,
+            "MYSQL_USER": MYSQL_USER,
+            "MYSQL_PASSWORD": MYSQL_PWD,
+            "MYSQL_DATABASE": MYSQL_DB,
+        },
+        command="python /app/record_ab_outcomes.py",
+    )
+
+    run_ab_analysis = DockerOperator(
+        task_id="run_ab_analysis",
+        image="model-monitoring:latest",
+        container_name="run-ab-analysis-{{ ts_nodash }}",
+        auto_remove=True,
+        docker_url="unix:///var/run/docker.sock",
+        network_mode=DOCKER_NETWORK,
+        mount_tmp_dir=False,
+        do_xcom_push=False,
+        environment={
+            "MYSQL_HOST": MYSQL_HOST,
+            "MYSQL_USER": MYSQL_USER,
+            "MYSQL_PASSWORD": MYSQL_PWD,
+            "MYSQL_DATABASE": MYSQL_DB,
+            "SLACK_WEBHOOK_URL": SLACK_WEBHOOK_URL,
+            "AB_MIN_SAMPLE_SIZE": os.getenv("AB_MIN_SAMPLE_SIZE", "30"),
+            "AB_LIFT_ALERT_THRESHOLD": os.getenv("AB_LIFT_ALERT_THRESHOLD", "0.02"),
+            "MONITORING_OUTPUT_DIR": "/app/output/monitoring",
+        },
+        mounts=MONITORING_MOUNTS,
+        command="python /app/ab_analysis.py",
+    )
+
     (
         mysql_ready
         >> run_mysql_migrations
         >> pyspark_db_dns_check
         >> start_stream
         >> validate_raw_data
+        >> validate_raw_schema
         >> run_eda
         >> pyspark_analysis
         >> validate_processed_data
@@ -360,4 +497,8 @@ with DAG(
         >> validate_model_predictions
         >> promote_model
         >> run_monitoring
+        >> run_feature_drift
+        >> check_drift_alert
+        >> record_ab_outcomes
+        >> run_ab_analysis
     )

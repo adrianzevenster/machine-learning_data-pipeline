@@ -80,8 +80,8 @@ stages:
     deps:
     - path: airflow-docker/pySpark/pySparkModel.py
       hash: md5
-      md5: ce0c9229962fbd62e4cc393f1aecb2b1
-      size: 23812
+      md5: 4527eb5feb7c47f9937aee69395e4585
+      size: 24923
     - path: data/processed/.features_done
       hash: md5
       md5: d41d8cd98f00b204e9800998ecf8427e
@@ -106,12 +106,12 @@ stages:
     outs:
     - path: metrics/train_metrics.json
       hash: md5
-      md5: e4f8f76a6ff7e58b76d422592a3717a6
+      md5: 319091d57d7144f8c526db3773ab773c
       size: 238
     - path: models/current/
       hash: md5
-      md5: d953ef581a5b9a6631f0f17dad45aea2.dir
-      size: 19367
+      md5: bab8ebcaec7378053d3dd8c15ca27417.dir
+      size: 19490
       nfiles: 52
   promote:
     cmd: "export MLFLOW_REGISTERED_MODEL_NAME=customer_churn_random_forest\nexport
@@ -129,7 +129,7 @@ stages:
       isexec: true
     - path: metrics/train_metrics.json
       hash: md5
-      md5: e4f8f76a6ff7e58b76d422592a3717a6
+      md5: 494af942e8ffeddb3cd19fe58fd1a84c
       size: 238
     params:
       params.yaml:
@@ -144,18 +144,53 @@ stages:
       hash: md5
       md5: 482412cb327a6763cfa7a0e9ebf77b39
       size: 6971
+    - path: airflow-docker/model_monitoring/check_drift_alert.py
+      hash: md5
+      md5: c1a2a94adfec3ac92386b7920c7f2b8b
+      size: 4985
+    - path: airflow-docker/model_monitoring/feature_drift.py
+      hash: md5
+      md5: 062ad4b0aee4b95a69b86ac7922f4b7d
+      size: 3426
     - path: dvc/stages/monitor.sh
       hash: md5
-      md5: c13d76282f5c4ac51866b7d8b8ad7a8f
-      size: 520
+      md5: 0aae1b8e3416e36ea986d6495e201c66
+      size: 1292
       isexec: true
     - path: metrics/train_metrics.json
       hash: md5
-      md5: e4f8f76a6ff7e58b76d422592a3717a6
+      md5: 319091d57d7144f8c526db3773ab773c
       size: 238
     outs:
     - path: data/monitoring/
       hash: md5
-      md5: 6357c580a57f4724a77dd58dd08fdd8b.dir
-      size: 83479
-      nfiles: 2
+      md5: dc9ac0c4e7ce0bcb284963ed05d28f41.dir
+      size: 250437
+      nfiles: 6
+  ab_outcomes:
+    cmd: bash dvc/stages/ab_outcomes.sh
+    deps:
+    - path: airflow-docker/model_monitoring/ab_analysis.py
+      hash: md5
+      md5: 7852fdb2f4ab9e4c4b51db292f98db58
+      size: 7198
+    - path: airflow-docker/model_monitoring/record_ab_outcomes.py
+      hash: md5
+      md5: c676639debec98b0682908c9f9a1554b
+      size: 1892
+    - path: data/monitoring/
+      hash: md5
+      md5: dc9ac0c4e7ce0bcb284963ed05d28f41.dir
+      size: 250437
+      nfiles: 6
+    - path: dvc/stages/ab_outcomes.sh
+      hash: md5
+      md5: 26ed4b6e4019020edbadacf5099d0ed3
+      size: 1296
+      isexec: true
+    outs:
+    - path: data/ab/
+      hash: md5
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0

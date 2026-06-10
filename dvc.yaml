@@ -124,14 +124,34 @@ stages:
       - dvc/stages/promote.sh
 
   # ── 6. Monitor ────────────────────────────────────────────────────────────
-  # Runs NannyML performance monitoring; report written to data/monitoring/.
+  # Runs NannyML performance monitoring + feature drift check.
+  # Report written to data/monitoring/.
   monitor:
     cmd: bash dvc/stages/monitor.sh
     deps:
       - metrics/train_metrics.json
       - airflow-docker/model_monitoring/Model_Monitoring.py
+      - airflow-docker/model_monitoring/check_drift_alert.py
+      - airflow-docker/model_monitoring/feature_drift.py
       - dvc/stages/monitor.sh
     outs:
       - data/monitoring/:
+          cache: false
+          persist: true
+
+  # ── 7. A/B outcomes ───────────────────────────────────────────────────────
+  # Backfills actual_churn into serving_predictions, then computes per-variant
+  # accuracy/AUC comparison.  Non-fatal if no serving predictions exist yet
+  # (fresh environment or A/B not yet enabled).
+  # Report written to data/ab/ab_analysis_report.json.
+  ab_outcomes:
+    cmd: bash dvc/stages/ab_outcomes.sh
+    deps:
+      - data/monitoring/
+      - airflow-docker/model_monitoring/record_ab_outcomes.py
+      - airflow-docker/model_monitoring/ab_analysis.py
+      - dvc/stages/ab_outcomes.sh
+    outs:
+      - data/ab/:
           cache: false
           persist: true
