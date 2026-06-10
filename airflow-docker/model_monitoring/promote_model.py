@@ -13,8 +13,9 @@ MODEL_NAME = os.getenv("MLFLOW_REGISTERED_MODEL_NAME", os.getenv("MODEL_NAME", "
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 MLFLOW_REGISTRY_URI = os.getenv("MLFLOW_REGISTRY_URI", MLFLOW_TRACKING_URI)
 PROMOTION_STAGE = os.getenv("MODEL_PROMOTION_STAGE", "Production")
-MIN_MODEL_AUC = float(os.getenv("MIN_MODEL_AUC", "0.5"))
+MIN_MODEL_AUC = float(os.getenv("MIN_MODEL_AUC", "0.65"))
 MIN_PREDICTION_ROWS = int(os.getenv("MIN_PROMOTION_PREDICTION_ROWS", "1"))
+MIN_PRECISION_AT_TOP_DECILE = float(os.getenv("MIN_PRECISION_AT_TOP_DECILE", "0.0"))
 
 
 def mysql_config():
@@ -152,7 +153,9 @@ def promote_candidate(cursor, candidate, mlflow_model_version):
         """,
         (
             PROMOTION_STAGE,
-            f"Passed promotion thresholds: auc>={MIN_MODEL_AUC}, prediction_rows>={MIN_PREDICTION_ROWS}",
+            f"Passed promotion thresholds: auc>={MIN_MODEL_AUC}, "
+            f"precision_at_top_decile>={MIN_PRECISION_AT_TOP_DECILE}, "
+            f"prediction_rows>={MIN_PREDICTION_ROWS}",
             promoted_at,
             MODEL_VERSION_ID,
         ),
@@ -209,12 +212,22 @@ def run_promotion():
         candidate = fetch_candidate(cursor)
 
         auc = parse_auc(candidate["metrics_json"])
+        metrics_parsed = json.loads(candidate["metrics_json"]) if candidate["metrics_json"] else {}
+        precision_at_top_decile = metrics_parsed.get("precision_at_top_decile")
         prediction_rows = candidate["prediction_row_count"] or 0
         rejection_reasons = []
         if auc is None:
             rejection_reasons.append("AUC metric is missing")
         elif auc < MIN_MODEL_AUC:
             rejection_reasons.append(f"AUC {auc:.4f} is below threshold {MIN_MODEL_AUC:.4f}")
+        if MIN_PRECISION_AT_TOP_DECILE > 0.0:
+            if precision_at_top_decile is None:
+                rejection_reasons.append("precision_at_top_decile metric is missing")
+            elif float(precision_at_top_decile) < MIN_PRECISION_AT_TOP_DECILE:
+                rejection_reasons.append(
+                    f"precision_at_top_decile {float(precision_at_top_decile):.4f} "
+                    f"is below threshold {MIN_PRECISION_AT_TOP_DECILE:.4f}"
+                )
         if prediction_rows < MIN_PREDICTION_ROWS:
             rejection_reasons.append(
                 f"prediction rows {prediction_rows} is below threshold {MIN_PREDICTION_ROWS}"

@@ -4,6 +4,7 @@ import logging
 import os
 import random
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
@@ -58,6 +59,7 @@ _feature_importances: Optional[Dict[str, float]] = None
 _shap_explainer: Optional[Any] = None
 _shadow_model: Optional[mlflow.pyfunc.PyFuncModel] = None
 _shadow_model_uri: Optional[str] = None
+_shadow_pool = ThreadPoolExecutor(max_workers=4)
 
 # ── Prometheus metrics ────────────────────────────────────────────────────────
 
@@ -324,9 +326,7 @@ def _run_inference(
         predictions.append(pred)
     # Shadow fires only in pure shadow mode — A/B routes to one model, no background twin
     if SHADOW_MODEL_ENABLED and not AB_TESTING_ENABLED:
-        threading.Thread(
-            target=_run_shadow_inference, args=(df.copy(), predictions), daemon=True
-        ).start()
+        _shadow_pool.submit(_run_shadow_inference, df.copy(), predictions)
     return predictions
 
 

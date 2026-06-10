@@ -12,6 +12,11 @@ import logging
 
 app = Flask(__name__)
 
+COUNT_COLUMNS = ["DP_MOC_COUNT", "DP_MTC_COUNT", "DP_MOSMS_COUNT", "DP_MTSMS_COUNT", "DP_DATA_COUNT"]
+FLOAT_COLUMNS = ["DP_MOC_DURATION", "DP_MTC_DURATION"]
+NOISY_METRIC_COLUMNS = COUNT_COLUMNS + FLOAT_COLUMNS + ["DP_DATA_VOLUME"]
+
+
 def create_random_batches_with_randomized_timestamps(df, batch_size, num_batches):
     for i in range(num_batches):
         logging.debug(f"Creating batch {i + 1}/{num_batches} with size {batch_size}")
@@ -21,13 +26,30 @@ def create_random_batches_with_randomized_timestamps(df, batch_size, num_batches
         random_timestamps = [current_time + timedelta(seconds=random.randint(-300, 300)) for _ in range(batch_size)]
         batch_df['DP_DATE'] = random_timestamps
 
-        for col in batch_df.select_dtypes(include=[np.number]).columns:
-            if col != 'id':
+        for col in NOISY_METRIC_COLUMNS:
+            if col in batch_df.columns:
                 noise = np.random.normal(0, 0.1, batch_size)
                 batch_df[col] = batch_df[col] * (1 + noise)
 
         if 'id' in batch_df.columns:
             batch_df = batch_df.drop(columns=['id'])
+
+        for col in COUNT_COLUMNS:
+            if col in batch_df.columns:
+                batch_df[col] = pd.to_numeric(batch_df[col], errors="coerce").fillna(0).clip(lower=0).round().astype(int)
+        for col in FLOAT_COLUMNS:
+            if col in batch_df.columns:
+                batch_df[col] = pd.to_numeric(batch_df[col], errors="coerce").fillna(0.0).clip(lower=0)
+        if "DP_DATA_VOLUME" in batch_df.columns:
+            batch_df["DP_DATA_VOLUME"] = pd.to_numeric(batch_df["DP_DATA_VOLUME"], errors="coerce").fillna(0.0).abs()
+        if "PSEUDO_CHURNED" in batch_df.columns:
+            batch_df["PSEUDO_CHURNED"] = (
+                pd.to_numeric(batch_df["PSEUDO_CHURNED"], errors="coerce")
+                .fillna(0)
+                .round()
+                .clip(lower=0, upper=1)
+                .astype(int)
+            )
 
         batch_df = batch_df.where(pd.notnull(batch_df), None)
         insert_into_database(batch_df, "DP_CDR_Data")

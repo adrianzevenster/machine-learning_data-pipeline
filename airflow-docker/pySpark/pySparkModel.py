@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sys
 import socket
@@ -585,6 +586,10 @@ try:
 except Exception as _exc:
     print(f"[mlflow] WARNING: could not log explanation artifacts: {_exc}")
 
+feature_hash = hashlib.sha256(json.dumps(sorted(feature_cols)).encode()).hexdigest()[:12]
+print(f"[features] hash={feature_hash}  cols={feature_cols}")
+mlflow.log_param("feature_hash", feature_hash)
+
 metric = None
 if test_count > 0:
     predictions = cv_model.transform(test_df)
@@ -620,6 +625,25 @@ prediction_output = (
 prediction_count = prediction_output.count()
 print(f"[prediction_output.count] {prediction_count}")
 prediction_output.show(10, truncate=False)
+
+precision_at_top_decile = None
+try:
+    from pyspark.sql import Window as _Window
+    _top_n = max(1, prediction_count // 10)
+    _win = _Window.orderBy(F.desc("probability_1"))
+    _top = (
+        prediction_output
+        .withColumn("_rank", F.row_number().over(_win))
+        .filter(F.col("_rank") <= _top_n)
+    )
+    _top_total = _top.count()
+    _top_churned = _top.filter(F.col("label") == 1.0).count()
+    precision_at_top_decile = _top_churned / _top_total if _top_total > 0 else 0.0
+    mlflow.log_metric("precision_at_top_decile", float(precision_at_top_decile))
+    print(f"[precision@top10] {precision_at_top_decile:.4f}  ({_top_churned}/{_top_total} churned in top decile)")
+except Exception as _exc:
+    print(f"[precision@top10] WARNING: could not compute: {_exc}")
+
 mlflow.log_metrics(
     {
         "train_rows": train_count,
@@ -658,10 +682,12 @@ if DVC_METRICS_PATH:
         "pipeline_run_id": PIPELINE_RUN_ID,
         "model_version_id": MODEL_VERSION_ID,
         "auc": float(metric) if metric is not None else None,
+        "precision_at_top_decile": float(precision_at_top_decile) if precision_at_top_decile is not None else None,
         "train_rows": train_count,
         "test_rows": test_count,
         "prediction_rows": prediction_count,
         "feature_count": len(feature_cols),
+        "feature_hash": feature_hash,
     }
     os.makedirs(os.path.dirname(os.path.abspath(DVC_METRICS_PATH)), exist_ok=True)
     with open(DVC_METRICS_PATH, "w") as _f:

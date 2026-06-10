@@ -14,6 +14,8 @@ MYSQL_HOST = os.getenv("MYSQL_HOST", "mysql")
 MYSQL_USER = os.getenv("MYSQL_USER", "spark")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "sparkpw")
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "RawData")
+# Only backfill predictions old enough for churn labels to have settled
+LABEL_DELAY_DAYS = int(os.getenv("LABEL_DELAY_DAYS", "30"))
 
 
 def mysql_config() -> dict:
@@ -44,7 +46,9 @@ def record_outcomes() -> int:
                 sp.outcome_recorded_at = NOW()
             WHERE sp.msisdn       IS NOT NULL
               AND sp.actual_churn IS NULL
-            """
+              AND sp.served_at   <= NOW() - INTERVAL %s DAY
+            """,
+            (LABEL_DELAY_DAYS,),
         )
         updated = cursor.rowcount
         conn.commit()

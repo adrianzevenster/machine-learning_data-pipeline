@@ -1,0 +1,62 @@
+groups:
+  - name: churn-serving
+    interval: 1m
+    rules:
+
+      # No predictions have been served for 10 minutes — model likely not loaded
+      # or serving container is down.
+      - alert: ChurnModelSilent
+        expr: increase(churn_predictions_total[10m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Churn serving endpoint has made no predictions in the last 10 minutes"
+          description: >
+            churn_predictions_total has not increased in 10 minutes.
+            Check that the model-serving container is running and a model is
+            promoted to Production (POST /model/reload if needed).
+
+      # Prediction rate dropped by more than 80% compared to the 1-hour average.
+      # Triggered only when a baseline exists (rate > 0 in the past hour).
+      - alert: ChurnPredictionRateDrop
+        expr: >
+          rate(churn_predictions_total[5m]) <
+          rate(churn_predictions_total[1h]) * 0.2
+          and rate(churn_predictions_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Churn prediction rate dropped more than 80%"
+          description: >
+            5-minute rate is less than 20% of the 1-hour average.
+            Possible causes: upstream traffic drop, load-balancer misconfiguration,
+            or serving container restart.
+
+      # Model was hot-reloaded more than twice in 30 minutes — unexpected churn
+      # in the Production model slot (rollback loop or pipeline bug).
+      - alert: ChurnModelReloadFlapping
+        expr: increase(churn_model_reloads_total[30m]) > 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Production churn model reloaded more than twice in 30 minutes"
+          description: >
+            churn_model_reloads_total increased by {{ $value }} in the last 30 minutes.
+            Investigate whether a rollback loop or automated retraining cycle is
+            promoting/demoting the model repeatedly.
+
+      # Shadow inference disagrees with champion on more than 40% of requests.
+      # High disagreement may indicate the challenger has diverged significantly.
+      - alert: ChurnShadowHighDisagreement
+        expr: churn_shadow_champion_agreement < 0.6
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Shadow model disagrees with champion on more than 40% of predictions"
+          description: >
+            churn_shadow_champion_agreement = {{ $value | humanizePercentage }}.
+            Review challenger model quality before promoting.

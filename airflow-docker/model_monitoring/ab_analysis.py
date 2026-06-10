@@ -1,11 +1,13 @@
 """
 A/B test analysis: compare champion vs challenger accuracy on labelled serving predictions.
 
-Reads serving_predictions WHERE actual_churn IS NOT NULL, computes per-variant
-accuracy / precision / recall / AUC, writes a JSON report, and sends a Slack
-summary when the challenger shows meaningful lift (or meaningful regression).
+Reads serving_predictions WHERE actual_churn IS NOT NULL AND the prediction is
+older than LABEL_DELAY_DAYS (settled labels only).  Computes per-variant
+accuracy / precision / recall / AUC, runs a two-proportion z-test for statistical
+significance, writes a JSON report, and sends a Slack summary.
 """
 import json
+import math
 import os
 import sys
 import urllib.request
@@ -20,8 +22,10 @@ MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "sparkpw")
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "RawData")
 
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
-AB_MIN_SAMPLE_SIZE = int(os.getenv("AB_MIN_SAMPLE_SIZE", "30"))
+AB_MIN_SAMPLE_SIZE = int(os.getenv("AB_MIN_SAMPLE_SIZE", "200"))
 AB_LIFT_ALERT_THRESHOLD = float(os.getenv("AB_LIFT_ALERT_THRESHOLD", "0.02"))
+AB_SIGNIFICANCE_ALPHA = float(os.getenv("AB_SIGNIFICANCE_ALPHA", "0.05"))
+LABEL_DELAY_DAYS = int(os.getenv("LABEL_DELAY_DAYS", "30"))
 OUTPUT_DIR = Path(os.getenv("MONITORING_OUTPUT_DIR", "/app/output/monitoring"))
 
 
@@ -47,9 +51,11 @@ def fetch_aggregate_metrics(cursor) -> List[dict]:
             SUM(CASE WHEN prediction=0 AND actual_churn=1 THEN 1 ELSE 0 END)  AS fn
         FROM   serving_predictions
         WHERE  actual_churn IS NOT NULL
+          AND  served_at <= NOW() - INTERVAL %s DAY
         GROUP  BY model_variant
         ORDER  BY model_variant
-        """
+        """,
+        (LABEL_DELAY_DAYS,),
     )
     cols = [d[0] for d in cursor.description]
     return [dict(zip(cols, row)) for row in cursor.fetchall()]
@@ -62,9 +68,10 @@ def fetch_raw_scores(cursor, variant: str) -> tuple:
         SELECT actual_churn, probability_churn
         FROM   serving_predictions
         WHERE  actual_churn IS NOT NULL
+          AND  served_at <= NOW() - INTERVAL %s DAY
           AND  model_variant = %s
         """,
-        (variant,),
+        (LABEL_DELAY_DAYS, variant),
     )
     rows = cursor.fetchall()
     y_true = [r[0] for r in rows]
@@ -100,27 +107,59 @@ def enrich_metrics(row: dict, y_true: list, y_score: list) -> dict:
     }
 
 
-def make_recommendation(champion: dict, challenger: dict) -> str:
-    c_acc = champion.get("accuracy") or 0
-    ch_acc = challenger.get("accuracy") or 0
-    lift = ch_acc - c_acc
-    if abs(lift) < AB_LIFT_ALERT_THRESHOLD:
-        return "no_significant_difference"
-    return "promote_challenger" if lift > 0 else "keep_champion"
+def _norm_cdf(z: float) -> float:
+    """Standard normal CDF via math.erfc (no scipy dependency)."""
+    return 0.5 * math.erfc(-z / math.sqrt(2))
 
 
-def send_slack(champion: dict, challenger: dict, recommendation: str) -> None:
+def two_proportion_z_test(n1: int, correct1: int, n2: int, correct2: int) -> dict:
+    """Two-sided two-proportion z-test: H0 = champion and challenger have equal accuracy."""
+    p1 = correct1 / n1 if n1 > 0 else 0.0
+    p2 = correct2 / n2 if n2 > 0 else 0.0
+    p_pool = (correct1 + correct2) / (n1 + n2) if (n1 + n2) > 0 else 0.0
+    se = math.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2)) if (n1 > 0 and n2 > 0) else 0.0
+    if se == 0:
+        return {"z_stat": 0.0, "p_value": 1.0, "significant": False}
+    z = (p2 - p1) / se
+    p_value = 2 * (1 - _norm_cdf(abs(z)))
+    return {
+        "z_stat": round(z, 4),
+        "p_value": round(p_value, 6),
+        "significant": p_value < AB_SIGNIFICANCE_ALPHA,
+    }
+
+
+def make_recommendation(champion: dict, challenger: dict) -> tuple:
+    """Return (recommendation, significance_test) based on z-test and lift threshold."""
+    n_champ = int(champion.get("total", 0) or 0)
+    n_chal = int(challenger.get("total", 0) or 0)
+    correct_champ = int(champion.get("correct", 0) or 0)
+    correct_chal = int(challenger.get("correct", 0) or 0)
+
+    sig = two_proportion_z_test(n_champ, correct_champ, n_chal, correct_chal)
+    lift = (challenger.get("accuracy") or 0) - (champion.get("accuracy") or 0)
+
+    if not sig["significant"] or abs(lift) < AB_LIFT_ALERT_THRESHOLD:
+        recommendation = "no_significant_difference"
+    else:
+        recommendation = "promote_challenger" if lift > 0 else "keep_champion"
+    return recommendation, sig
+
+
+def send_slack(champion: dict, challenger: dict, recommendation: str, sig: dict) -> None:
     if not SLACK_WEBHOOK_URL:
         return
     lift = (challenger.get("accuracy") or 0) - (champion.get("accuracy") or 0)
     emoji = ":white_check_mark:" if recommendation == "promote_challenger" else ":warning:"
     msg = (
         f"{emoji} *A/B analysis complete*\n"
-        f"Champion  — accuracy: {champion.get('accuracy', 0):.3f}  "
+        f"Champion   — accuracy: {champion.get('accuracy', 0):.3f}  "
         f"AUC: {champion.get('auc') or 'n/a'}  n={int(champion.get('total', 0))}\n"
         f"Challenger — accuracy: {challenger.get('accuracy', 0):.3f}  "
         f"AUC: {challenger.get('auc') or 'n/a'}  n={int(challenger.get('total', 0))}\n"
-        f"Accuracy lift: {lift:+.3f}  →  *{recommendation}*"
+        f"Accuracy lift: {lift:+.3f}  z={sig.get('z_stat', 'n/a')}  "
+        f"p={sig.get('p_value', 'n/a')}  significant={sig.get('significant')}  "
+        f"→  *{recommendation}*"
     )
     try:
         payload = json.dumps({"text": msg}).encode()
@@ -163,16 +202,20 @@ def run_analysis() -> dict:
             metrics[variant]["recommendation"] = "insufficient_sample_size"
 
     recommendation = "insufficient_sample_size"
+    significance_test: dict = {}
     if (champion.get("total", 0) >= AB_MIN_SAMPLE_SIZE
             and challenger.get("total", 0) >= AB_MIN_SAMPLE_SIZE):
-        recommendation = make_recommendation(champion, challenger)
+        recommendation, significance_test = make_recommendation(champion, challenger)
         if recommendation != "no_significant_difference":
-            send_slack(champion, challenger, recommendation)
+            send_slack(champion, challenger, recommendation, significance_test)
 
     report = {
         "variants": metrics,
         "recommendation": recommendation,
+        "significance_test": significance_test,
         "min_sample_size": AB_MIN_SAMPLE_SIZE,
+        "label_delay_days": LABEL_DELAY_DAYS,
+        "significance_alpha": AB_SIGNIFICANCE_ALPHA,
         "lift_alert_threshold": AB_LIFT_ALERT_THRESHOLD,
     }
 

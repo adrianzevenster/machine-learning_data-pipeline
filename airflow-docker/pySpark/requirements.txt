@@ -2,3 +2,4 @@ pandas==2.0.3
 mysql-connector-python==9.0.0
 pyspark==3.5.1
 mlflow==2.14.3
+kafka-python==2.0.2

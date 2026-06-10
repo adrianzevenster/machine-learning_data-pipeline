@@ -32,6 +32,11 @@ FLOAT_COLUMNS = [
     "DP_DATA_VOLUME",
 ]
 
+NON_NEGATIVE_FLOAT_COLUMNS = [
+    "DP_MOC_DURATION",
+    "DP_MTC_DURATION",
+]
+
 db_config = {
     "host": os.getenv("DB_HOST", "flaskapp-db"),
     "user": os.getenv("DB_USER", "spark"),
@@ -101,10 +106,21 @@ def prepare_raw_chunk(chunk):
     prepared["DP_MSISDN"] = prepared["DP_MSISDN"].astype(str)
 
     for column in INTEGER_COLUMNS:
-        prepared[column] = pd.to_numeric(prepared[column], errors="coerce").fillna(0).astype(int)
+        prepared[column] = (
+            pd.to_numeric(prepared[column], errors="coerce")
+            .fillna(0)
+            .clip(lower=0)
+            .astype(int)
+        )
 
-    for column in FLOAT_COLUMNS:
-        prepared[column] = pd.to_numeric(prepared[column], errors="coerce").fillna(0.0)
+    for column in NON_NEGATIVE_FLOAT_COLUMNS:
+        prepared[column] = pd.to_numeric(prepared[column], errors="coerce").fillna(0.0).clip(lower=0)
+
+    prepared["DP_DATA_VOLUME"] = (
+        pd.to_numeric(prepared["DP_DATA_VOLUME"], errors="coerce")
+        .fillna(0.0)
+        .abs()
+    )
 
     invalid_dates = prepared["DP_DATE"].isna().sum()
     if invalid_dates:
