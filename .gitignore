@@ -1,8 +1,7 @@
 __pycache__/
 *.py[cod]
 
-.codex
-.codex/
+
 .env
 .env.*
 !.env.example

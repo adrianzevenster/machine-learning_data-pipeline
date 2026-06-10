@@ -4,8 +4,10 @@ model:
   max_depth: "5,10"
   cv_folds: 2
   training_max_rows: 250000
-  min_auc: 0.5
+  min_auc: 0.65
   min_promotion_prediction_rows: 1
+  # 0.0 disables the gate; set >0 to require minimum precision in top-scoring decile
+  min_precision_at_top_decile: 0.0
 
 pyspark:
   driver_memory: 4g
@@ -18,6 +20,20 @@ data:
   batch_size: 1000
   num_batches: 10
   stream_interval: 10
+  # Minimum raw CDR rows required to proceed; pipeline halts if violated
+  min_raw_rows: 1000
+  # Maximum age (days) of the most recent DP_DATE before the pipeline halts
+  max_staleness_days: 7
+
+ab:
+  # Minimum labelled predictions per variant before a recommendation is issued
+  min_sample_size: 200
+  # Days a prediction must be aged before its label is considered settled
+  label_delay_days: 30
+  # Two-proportion z-test alpha; challenger must beat this to be recommended
+  significance_alpha: 0.05
+  # Accuracy lift threshold used alongside significance test
+  lift_alert_threshold: 0.02
 
 pipeline:
   # Cron schedule consumed by the Airflow DAG via PIPELINE_SCHEDULE env var

@@ -165,10 +165,16 @@ REQUIRED_ENV_EXAMPLE_KEYS = {
     "MODEL_PROMOTION_STAGE",
     "MIN_MODEL_AUC",
     "MIN_PROMOTION_PREDICTION_ROWS",
+    "MIN_PRECISION_AT_TOP_DECILE",
     "AIRFLOW_WEBSERVER_SECRET_KEY",
     "MODEL_TRAINING_MAX_ROWS",
     "MODEL_CV_FOLDS",
     "SPARK_SQL_SHUFFLE_PARTITIONS",
+    "AB_MIN_SAMPLE_SIZE",
+    "AB_SIGNIFICANCE_ALPHA",
+    "LABEL_DELAY_DAYS",
+    "MIN_RAW_ROWS",
+    "DATA_MAX_STALENESS_DAYS",
 }
 
 
@@ -395,6 +401,30 @@ def assert_runtime_hardening() -> None:
 
     if "AIRFLOW__WEBSERVER__SECRET_KEY" not in compose_text:
         raise AssertionError("Airflow services must share a stable webserver secret key for log serving.")
+
+    # Prometheus alert rules must exist and be referenced in the Prometheus config.
+    prom_config_path = AIRFLOW_ROOT / "prometheus" / "prometheus.yml"
+    prom_alerts_path = AIRFLOW_ROOT / "prometheus" / "alerts.yml"
+    if not prom_alerts_path.exists():
+        raise AssertionError("airflow-docker/prometheus/alerts.yml is missing — add Prometheus alert rules.")
+    prom_config = read_text(prom_config_path)
+    if "alerts.yml" not in prom_config:
+        raise AssertionError("prometheus.yml must reference alerts.yml under rule_files.")
+    if "alerts.yml" not in compose_text:
+        raise AssertionError("docker-compose.yml must mount prometheus/alerts.yml into the Prometheus container.")
+
+    # AUC promotion gate must be set meaningfully above the no-skill baseline.
+    import yaml
+    params_path = REPO_ROOT / "params.yaml"
+    if params_path.exists():
+        with open(params_path) as _f:
+            _params = yaml.safe_load(_f)
+        _min_auc = float((_params.get("model") or {}).get("min_auc", 0))
+        if _min_auc < 0.6:
+            raise AssertionError(
+                f"params.yaml model.min_auc={_min_auc} is below 0.6 — "
+                "a model near random-chance should not be auto-promoted."
+            )
 
 
 def main() -> int:

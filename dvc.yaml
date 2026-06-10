@@ -28,12 +28,31 @@ stages:
     outs:
       - data/raw/.ingest_done
 
-  # ── 2. EDA ────────────────────────────────────────────────────────────────
+  # ── 2. Validate raw ───────────────────────────────────────────────────────
+  # Pandera schema check + volume gate (>= MIN_RAW_ROWS) + freshness gate
+  # (max DP_DATE within DATA_MAX_STALENESS_DAYS).  Pipeline halts here if the
+  # raw CDR table is too small or stale, preventing a bad model from training.
+  validate_raw:
+    cmd: |
+      export MIN_RAW_ROWS=${data.min_raw_rows}
+      export DATA_MAX_STALENESS_DAYS=${data.max_staleness_days}
+      bash dvc/stages/validate_raw.sh
+    params:
+      - data.min_raw_rows
+      - data.max_staleness_days
+    deps:
+      - data/raw/.ingest_done
+      - airflow-docker/quality/validate_raw_schema.py
+      - dvc/stages/validate_raw.sh
+    outs:
+      - data/validated/.validate_raw_done
+
+  # ── 3. EDA ────────────────────────────────────────────────────────────────
   # Exploratory analysis; outputs CSVs/plots to data/eda/.
   eda:
     cmd: bash dvc/stages/eda.sh
     deps:
-      - data/raw/.ingest_done
+      - data/validated/.validate_raw_done
       - airflow-docker/ExploratoryDataAnalysis/EDA.py
       - dvc/stages/eda.sh
     outs:
@@ -41,7 +60,7 @@ stages:
           cache: false
           persist: true
 
-  # ── 3. Feature engineering ────────────────────────────────────────────────
+  # ── 4. Feature engineering ────────────────────────────────────────────────
   # PySpark aggregation; writes processed features to MySQL Processed_Data.
   feature_engineering:
     cmd: |
@@ -62,7 +81,7 @@ stages:
     outs:
       - data/processed/.features_done
 
-  # ── 4. Train ──────────────────────────────────────────────────────────────
+  # ── 5. Train ──────────────────────────────────────────────────────────────
   # Trains RandomForest, registers to MLflow, writes predictions to MySQL.
   # Model artifact → models/current/ (DVC-cached).
   # metrics/train_metrics.json  → tracked by DVC for dvc metrics show/diff.
@@ -103,18 +122,20 @@ stages:
       - metrics/train_metrics.json:
           cache: false
 
-  # ── 5. Promote ────────────────────────────────────────────────────────────
-  # Checks AUC / prediction-row thresholds and promotes the MLflow model
-  # version to the Production stage.
+  # ── 6. Promote ────────────────────────────────────────────────────────────
+  # Checks AUC / precision@top-decile / prediction-row thresholds and promotes
+  # the MLflow model version to the Production stage.
   promote:
     cmd: |
       export MLFLOW_REGISTERED_MODEL_NAME=${pipeline.registered_model_name}
       export MODEL_PROMOTION_STAGE=${pipeline.promotion_stage}
       export MIN_MODEL_AUC=${model.min_auc}
+      export MIN_PRECISION_AT_TOP_DECILE=${model.min_precision_at_top_decile}
       export MIN_PROMOTION_PREDICTION_ROWS=${model.min_promotion_prediction_rows}
       bash dvc/stages/promote.sh
     params:
       - model.min_auc
+      - model.min_precision_at_top_decile
       - model.min_promotion_prediction_rows
       - pipeline.promotion_stage
       - pipeline.registered_model_name
@@ -123,7 +144,7 @@ stages:
       - airflow-docker/model_monitoring/promote_model.py
       - dvc/stages/promote.sh
 
-  # ── 6. Monitor ────────────────────────────────────────────────────────────
+  # ── 7. Monitor ────────────────────────────────────────────────────────────
   # Runs NannyML performance monitoring + feature drift check.
   # Report written to data/monitoring/.
   monitor:
@@ -139,13 +160,23 @@ stages:
           cache: false
           persist: true
 
-  # ── 7. A/B outcomes ───────────────────────────────────────────────────────
-  # Backfills actual_churn into serving_predictions, then computes per-variant
-  # accuracy/AUC comparison.  Non-fatal if no serving predictions exist yet
-  # (fresh environment or A/B not yet enabled).
+  # ── 8. A/B outcomes ───────────────────────────────────────────────────────
+  # Backfills actual_churn into serving_predictions (settled labels only,
+  # older than LABEL_DELAY_DAYS), then computes per-variant accuracy/AUC with
+  # a two-proportion z-test.  Non-fatal if no serving predictions exist yet.
   # Report written to data/ab/ab_analysis_report.json.
   ab_outcomes:
-    cmd: bash dvc/stages/ab_outcomes.sh
+    cmd: |
+      export LABEL_DELAY_DAYS=${ab.label_delay_days}
+      export AB_MIN_SAMPLE_SIZE=${ab.min_sample_size}
+      export AB_SIGNIFICANCE_ALPHA=${ab.significance_alpha}
+      export AB_LIFT_ALERT_THRESHOLD=${ab.lift_alert_threshold}
+      bash dvc/stages/ab_outcomes.sh
+    params:
+      - ab.label_delay_days
+      - ab.min_sample_size
+      - ab.significance_alpha
+      - ab.lift_alert_threshold
     deps:
       - data/monitoring/
       - airflow-docker/model_monitoring/record_ab_outcomes.py

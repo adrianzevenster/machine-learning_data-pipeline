@@ -113,7 +113,7 @@ services:
       AIRFLOW_UID: "50000"
     command: ["webserver"]
     ports:
-      - "8080:8080"
+      - "${AIRFLOW_WEBSERVER_HOST_PORT:-8081}:8080"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
@@ -198,6 +198,55 @@ services:
       - ./ExploratoryDataAnalysis:/opt/airflow/eda
     networks: [airflow-network]
 
+  kafka:
+    image: confluentinc/cp-kafka:7.5.2
+    container_name: kafka
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks: [airflow-network]
+
+  spark-streaming:
+    build:
+      context: ./pySpark
+    image: pyspark-app:latest
+    container_name: spark-streaming
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_CDR_TOPIC: ${KAFKA_CDR_TOPIC:-cdr-events}
+      MYSQL_HOST: mysql
+      MYSQL_USER: ${SPARK_MYSQL_USER:-spark}
+      MYSQL_PASSWORD: ${SPARK_MYSQL_PASSWORD:-sparkpw}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-RawData}
+      SPARK_STREAMING_TRIGGER_SECONDS: ${SPARK_STREAMING_TRIGGER_SECONDS:-30}
+      SPARK_DRIVER_MEMORY: ${STREAMING_SPARK_DRIVER_MEMORY:-1g}
+    command: >
+      /opt/spark/bin/spark-submit
+      --master local[2]
+      /app/spark_streaming_consumer.py
+    restart: on-failure
+    networks: [airflow-network]
+
   flaskapp:
     build: ./flaskapp
     image: flaskapp-flaskapp-app:latest
@@ -205,12 +254,16 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       DB_HOST: mysql
       DB_USER: ${APP_MYSQL_USER:-spark}
       DB_PASSWORD: ${APP_MYSQL_PASSWORD:-sparkpw}
       DB_NAME: ${MYSQL_DATABASE:-RawData}
       DATABASE_URL: mysql+pymysql://${APP_MYSQL_USER:-spark}:${APP_MYSQL_PASSWORD:-sparkpw}@mysql:3306/${MYSQL_DATABASE:-RawData}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_CDR_TOPIC: ${KAFKA_CDR_TOPIC:-cdr-events}
     command: >
       sh -c "python DataBase.py && gunicorn --bind 0.0.0.0:5000 --workers ${GUNICORN_WORKERS:-2} --threads ${GUNICORN_THREADS:-4} --timeout ${GUNICORN_TIMEOUT:-120} streamingestion:app"
     networks: [airflow-network]
@@ -276,6 +329,7 @@ services:
     profiles: ["observability"]
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "${PROMETHEUS_HOST_PORT:-9090}:9090"

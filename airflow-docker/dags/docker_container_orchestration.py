@@ -171,6 +171,11 @@ with DAG(
 
     DRIFT_ALERT_MIN_ROC_AUC = os.getenv("DRIFT_ALERT_MIN_ROC_AUC", "0.6")
     SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+    LABEL_DELAY_DAYS = os.getenv("LABEL_DELAY_DAYS", "30")
+    AB_MIN_SAMPLE_SIZE = os.getenv("AB_MIN_SAMPLE_SIZE", "200")
+    AB_SIGNIFICANCE_ALPHA = os.getenv("AB_SIGNIFICANCE_ALPHA", "0.05")
+    MIN_RAW_ROWS = os.getenv("MIN_RAW_ROWS", "1000")
+    DATA_MAX_STALENESS_DAYS = os.getenv("DATA_MAX_STALENESS_DAYS", "7")
 
     validate_raw_data = DockerOperator(
         task_id="validate_raw_data",
@@ -205,6 +210,8 @@ with DAG(
             "MYSQL_USER": MYSQL_USER,
             "MYSQL_PASSWORD": MYSQL_PWD,
             "MYSQL_DATABASE": MYSQL_DB,
+            "MIN_RAW_ROWS": MIN_RAW_ROWS,
+            "DATA_MAX_STALENESS_DAYS": DATA_MAX_STALENESS_DAYS,
         },
         command="python /app/quality/validate_raw_schema.py raw",
     )
@@ -455,6 +462,7 @@ with DAG(
             "MYSQL_USER": MYSQL_USER,
             "MYSQL_PASSWORD": MYSQL_PWD,
             "MYSQL_DATABASE": MYSQL_DB,
+            "LABEL_DELAY_DAYS": LABEL_DELAY_DAYS,
         },
         command="python /app/record_ab_outcomes.py",
     )
@@ -474,8 +482,10 @@ with DAG(
             "MYSQL_PASSWORD": MYSQL_PWD,
             "MYSQL_DATABASE": MYSQL_DB,
             "SLACK_WEBHOOK_URL": SLACK_WEBHOOK_URL,
-            "AB_MIN_SAMPLE_SIZE": os.getenv("AB_MIN_SAMPLE_SIZE", "30"),
+            "AB_MIN_SAMPLE_SIZE": AB_MIN_SAMPLE_SIZE,
+            "AB_SIGNIFICANCE_ALPHA": AB_SIGNIFICANCE_ALPHA,
             "AB_LIFT_ALERT_THRESHOLD": os.getenv("AB_LIFT_ALERT_THRESHOLD", "0.02"),
+            "LABEL_DELAY_DAYS": LABEL_DELAY_DAYS,
             "MONITORING_OUTPUT_DIR": "/app/output/monitoring",
         },
         mounts=MONITORING_MOUNTS,
