@@ -32,6 +32,7 @@ RUN curl -fsSL -o /opt/spark/jars/spark-sql-kafka-0-10_2.12-3.5.1.jar \
 
 COPY PySparkAnalysis.py /app/
 COPY pySparkModel.py /app/
+COPY model_card.py /app/
 COPY spark_streaming_consumer.py /app/
 
 CMD ["/bin/sh", "-lc", "python3 /app/PySparkAnalysis.py"]

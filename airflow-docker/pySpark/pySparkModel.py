@@ -20,6 +20,8 @@ from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.functions import vector_to_array
 
+from model_card import build_model_card
+
 
 MYSQL_DB = os.getenv("MYSQL_DATABASE", "RawData")
 MYSQL_USER = os.getenv("MYSQL_USER", "spark")
@@ -41,6 +43,7 @@ MODEL_CV_FOLDS = int(os.getenv("MODEL_CV_FOLDS", "2"))
 MODEL_NUM_TREES = int(os.getenv("MODEL_NUM_TREES", "50"))
 MODEL_MAX_DEPTH = [int(d) for d in os.getenv("MODEL_MAX_DEPTH", "5,10").split(",")]
 DVC_METRICS_PATH = os.getenv("DVC_METRICS_PATH")
+DVC_MODEL_CARD_PATH = os.getenv("DVC_MODEL_CARD_PATH")
 DVC_RUN_IDS_PATH = os.getenv("DVC_RUN_IDS_PATH")
 SPARK_DRIVER_MEMORY = os.getenv("SPARK_DRIVER_MEMORY", "3g")
 SPARK_EXECUTOR_MEMORY = os.getenv("SPARK_EXECUTOR_MEMORY", "2g")
@@ -540,7 +543,7 @@ mlflow.set_tags(
     }
 )
 mlflow.log_params(
-    {
+    training_params := {
         "numTrees": MODEL_NUM_TREES,
         "maxDepth": ",".join(str(d) for d in MODEL_MAX_DEPTH),
         "numFolds": max(2, min(MODEL_CV_FOLDS, int(model_min_class_count))),
@@ -645,7 +648,7 @@ except Exception as _exc:
     print(f"[precision@top10] WARNING: could not compute: {_exc}")
 
 mlflow.log_metrics(
-    {
+    row_metrics := {
         "train_rows": train_count,
         "test_rows": test_count,
         "prediction_rows": prediction_count,
@@ -675,6 +678,53 @@ upsert_model_version(metric, mlflow_run_id=mlflow_run_id, mlflow_model_uri=mlflo
 
 print(f"[write] model_predictions {PREDICTIONS_WRITE_MODE} done")
 upsert_pipeline_run("predictions_written", prediction_count=prediction_count)
+
+model_card_metrics = {
+    "auc": float(metric) if metric is not None else None,
+    "precision_at_top_decile": float(precision_at_top_decile) if precision_at_top_decile is not None else None,
+}
+model_card = build_model_card(
+    pipeline_run_id=PIPELINE_RUN_ID,
+    model_version_id=MODEL_VERSION_ID,
+    model_name=MODEL_NAME,
+    registered_model_name=MLFLOW_REGISTERED_MODEL_NAME,
+    algorithm="RandomForestClassifier",
+    git_sha=GIT_SHA,
+    image_tag=IMAGE_TAG,
+    mlflow_run_id=mlflow_run_id,
+    mlflow_model_uri=mlflow_model_uri,
+    artifact_uri=MODEL_ARTIFACT_URI,
+    data_start=START,
+    data_end=END,
+    features=feature_cols,
+    feature_hash=feature_hash,
+    metrics=model_card_metrics,
+    params=training_params,
+    row_counts={
+        "model_input_rows": model_input_count,
+        "train_rows": train_count,
+        "test_rows": test_count,
+        "prediction_rows": prediction_count,
+    },
+    promotion_policy={
+        "min_model_auc": os.getenv("MIN_MODEL_AUC"),
+        "min_precision_at_top_decile": os.getenv("MIN_PRECISION_AT_TOP_DECILE"),
+        "min_promotion_prediction_rows": os.getenv("MIN_PROMOTION_PREDICTION_ROWS"),
+    },
+)
+
+with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as model_card_file:
+    json.dump(model_card, model_card_file, indent=2, sort_keys=True)
+    model_card_tmp_path = model_card_file.name
+mlflow.log_artifact(model_card_tmp_path, artifact_path="metadata")
+
+if DVC_MODEL_CARD_PATH:
+    os.makedirs(os.path.dirname(os.path.abspath(DVC_MODEL_CARD_PATH)), exist_ok=True)
+    with open(DVC_MODEL_CARD_PATH, "w") as _f:
+        json.dump(model_card, _f, indent=2, sort_keys=True)
+    print(f"[dvc] model card written to {DVC_MODEL_CARD_PATH}")
+os.unlink(model_card_tmp_path)
+
 mlflow.end_run(status="FINISHED")
 
 if DVC_METRICS_PATH:

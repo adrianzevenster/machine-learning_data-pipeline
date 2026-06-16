@@ -2,10 +2,27 @@ PYTHON ?= python3
 PYTEST ?= $(PYTHON) -m pytest
 COMPOSE_FILE := airflow-docker/docker-compose.yml
 
-.PHONY: quality compile compose-check static-contracts secret-patterns test build-images \
-        dvc-repro dvc-status dvc-metrics dvc-params-diff
+.PHONY: up down restart logs ps quality compile compose-check dag-import static-contracts \
+        secret-patterns test smoke build-images dvc-repro dvc-status dvc-metrics dvc-params-diff
 
-quality: compile compose-check static-contracts secret-patterns test
+up:
+	docker compose -f $(COMPOSE_FILE) up -d
+
+down:
+	docker compose -f $(COMPOSE_FILE) down
+
+restart:
+	docker compose -f $(COMPOSE_FILE) up -d --build
+
+logs:
+	docker compose -f $(COMPOSE_FILE) logs -f --tail=100
+
+ps:
+	docker compose -f $(COMPOSE_FILE) ps
+
+quality: compile compose-check dag-import static-contracts secret-patterns test
+
+smoke: compose-check dag-import static-contracts
 
 compile:
 	$(PYTHON) -m py_compile \
@@ -22,6 +39,7 @@ compile:
 		airflow-docker/quality/check_static_contracts.py \
 		airflow-docker/quality/validate_mysql_tables.py \
 		airflow-docker/quality/validate_raw_schema.py \
+		airflow-docker/pySpark/model_card.py \
 		airflow-docker/pySpark/PySparkAnalysis.py \
 		airflow-docker/pySpark/pySparkModel.py \
 		airflow-docker/model_monitoring/rollback_model.py \
@@ -32,6 +50,9 @@ compile:
 
 compose-check:
 	docker compose --profile build -f $(COMPOSE_FILE) config --quiet
+
+dag-import:
+	$(PYTHON) -m py_compile airflow-docker/dags/docker_container_orchestration.py
 
 static-contracts:
 	$(PYTHON) airflow-docker/quality/check_static_contracts.py
