@@ -84,29 +84,32 @@ def test_enrich_metrics_no_positives_gives_none():
 
 def test_recommendation_promote_challenger_when_lift_exceeds_threshold(monkeypatch):
     monkeypatch.setattr(ab, "AB_LIFT_ALERT_THRESHOLD", 0.02)
-    rec = ab.make_recommendation(
-        {"accuracy": 0.75},
-        {"accuracy": 0.88},
+    rec, sig = ab.make_recommendation(
+        {"accuracy": 0.75, "total": 1000, "correct": 750},
+        {"accuracy": 0.88, "total": 1000, "correct": 880},
     )
     assert rec == "promote_challenger"
+    assert sig["significant"] is True
 
 
 def test_recommendation_keep_champion_when_challenger_worse(monkeypatch):
     monkeypatch.setattr(ab, "AB_LIFT_ALERT_THRESHOLD", 0.02)
-    rec = ab.make_recommendation(
-        {"accuracy": 0.88},
-        {"accuracy": 0.75},
+    rec, sig = ab.make_recommendation(
+        {"accuracy": 0.88, "total": 1000, "correct": 880},
+        {"accuracy": 0.75, "total": 1000, "correct": 750},
     )
     assert rec == "keep_champion"
+    assert sig["significant"] is True
 
 
 def test_recommendation_no_significant_difference_within_threshold(monkeypatch):
     monkeypatch.setattr(ab, "AB_LIFT_ALERT_THRESHOLD", 0.02)
-    rec = ab.make_recommendation(
-        {"accuracy": 0.80},
-        {"accuracy": 0.81},
+    rec, sig = ab.make_recommendation(
+        {"accuracy": 0.80, "total": 1000, "correct": 800},
+        {"accuracy": 0.81, "total": 1000, "correct": 810},
     )
     assert rec == "no_significant_difference"
+    assert sig["significant"] is False
 
 
 # ── run_analysis (integration with mocked cursor) ────────────────────────────

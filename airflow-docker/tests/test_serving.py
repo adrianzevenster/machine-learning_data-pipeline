@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
 import pytest
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
 # Stub mlflow before serving/main.py is imported so no Spark JVM is needed in CI
 _mlflow = types.ModuleType("mlflow")
@@ -82,6 +82,51 @@ VALID_FEATURES = {
 }
 
 
+class _Response:
+    def __init__(self, status_code, body=None):
+        self.status_code = status_code
+        self._body = body
+
+    def json(self):
+        if hasattr(self._body, "model_dump"):
+            return self._body.model_dump()
+        return self._body
+
+
+class _DirectClient:
+    def get(self, path):
+        try:
+            if path == "/health":
+                return _Response(200, serving.health())
+            if path == "/model/info":
+                return _Response(200, serving.model_info())
+            raise AssertionError(f"Unexpected GET path: {path}")
+        except HTTPException as exc:
+            return _Response(exc.status_code, {"detail": exc.detail})
+
+    def post(self, path, json=None):
+        payload = json or {}
+        try:
+            if path == "/predict":
+                return _Response(200, serving.predict(serving.Features(**payload)))
+            if path == "/predict/batch":
+                records = [serving.Features(**record) for record in payload.get("records", [])]
+                request = serving.BatchPredictRequest(
+                    records=records,
+                    routing_msisdn=payload.get("routing_msisdn"),
+                )
+                return _Response(200, serving.predict_batch(request))
+            if path == "/predict/explain":
+                return _Response(200, serving.predict_explain(serving.Features(**payload)))
+            if path == "/model/reload":
+                return _Response(200, serving.model_reload())
+            if path == "/model/shadow/reload":
+                return _Response(200, serving.shadow_reload())
+            raise AssertionError(f"Unexpected POST path: {path}")
+        except HTTPException as exc:
+            return _Response(exc.status_code, {"detail": exc.detail})
+
+
 @pytest.fixture(autouse=True)
 def _reset_model_state():
     serving._model = None
@@ -104,8 +149,7 @@ def _reset_model_state():
 @pytest.fixture()
 def client():
     _mlflow_pyfunc.load_model.side_effect = RuntimeError("no model in CI")
-    with TestClient(serving.app, raise_server_exceptions=False) as c:
-        yield c
+    yield _DirectClient()
     _mlflow_pyfunc.load_model.side_effect = None
 
 
@@ -113,8 +157,9 @@ def client():
 def loaded_client():
     _mlflow_pyfunc.load_model.side_effect = None
     _mlflow_pyfunc.load_model.return_value = _make_mock_model()
-    with TestClient(serving.app) as c:
-        yield c
+    serving._model = _make_mock_model()
+    serving._model_uri = f"models:/{serving.MODEL_NAME}/{serving.MODEL_STAGE}"
+    yield _DirectClient()
 
 
 # ── no-model tests ────────────────────────────────────────────────────────────

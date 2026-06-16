@@ -113,6 +113,7 @@ stages:
     deps:
       - data/processed/.features_done
       - airflow-docker/pySpark/pySparkModel.py
+      - airflow-docker/pySpark/model_card.py
       - dvc/stages/train.sh
     outs:
       - models/current/:
@@ -120,6 +121,8 @@ stages:
           persist: true
     metrics:
       - metrics/train_metrics.json:
+          cache: false
+      - metrics/model_card.json:
           cache: false
 
   # ── 6. Promote ────────────────────────────────────────────────────────────

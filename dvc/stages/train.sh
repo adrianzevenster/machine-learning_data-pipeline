@@ -28,6 +28,7 @@ docker run --rm \
   -e MODEL_ARTIFACT_URI=/dvc/models/current \
   -e MODEL_PREDICTIONS_WRITE_MODE="${MODEL_PREDICTIONS_WRITE_MODE:-append}" \
   -e DVC_METRICS_PATH=/dvc/metrics/train_metrics.json \
+  -e DVC_MODEL_CARD_PATH=/dvc/metrics/model_card.json \
   -e DVC_RUN_IDS_PATH=/dvc/metrics/run_ids.env \
   -e PYSPARK_PYTHON=python3 \
   -e GIT_PYTHON_REFRESH=quiet \
